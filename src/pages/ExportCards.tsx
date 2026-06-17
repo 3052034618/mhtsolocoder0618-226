@@ -1,11 +1,14 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useProjectStore } from '@/store/useProjectStore';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Download, FileText, Clock, Music, Camera, AlertTriangle,
+  CheckCircle, XCircle, Loader2, ClipboardCheck,
 } from 'lucide-react';
-import { MATERIAL_STATUS_CONFIG, REVIEW_STATUS_CONFIG, ROLE_CONFIG } from '@/types';
-import type { Storyboard, MaterialStatus, ReviewStatus, Role, Comment } from '@/types';
+import { MATERIAL_STATUS_CONFIG, REVIEW_STATUS_CONFIG, DELIVERY_STATUS_CONFIG, ROLE_CONFIG } from '@/types';
+import type { Storyboard, MaterialStatus, ReviewStatus, DeliveryStatus, Role, Comment } from '@/types';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 
 function escapeHtml(str: string): string {
   return String(str).replace(/[&<>"']/g, s => ({
@@ -13,7 +16,13 @@ function escapeHtml(str: string): string {
   }[s] || s));
 }
 
-function generateExportHTML(projectName: string, storyboards: Storyboard[], view: 'cards' | 'package', getComments: (sbId: string) => Comment[]): string {
+function generateExportHTML(
+  projectName: string,
+  storyboards: Storyboard[],
+  view: 'cards' | 'package',
+  getComments: (sbId: string) => Comment[],
+  signOffs?: { status: DeliveryStatus; signerName: string; signerRole: Role; notes: string; createdAt: string; rejectedStoryboardIds: string[] }[],
+): string {
   const statusMap: Record<MaterialStatus, { label: string; color: string }> = {
     not_shot: { label: '未拍摄', color: '#94a3b8' },
     uploaded: { label: '已上传', color: '#60a5fa' },
@@ -27,6 +36,12 @@ function generateExportHTML(projectName: string, storyboards: Storyboard[], view
     reshoot: { label: '需补镜', color: '#f87171' },
     revoice: { label: '需补音', color: '#a855f7' },
     notes: { label: '有备注', color: '#fbbf24' },
+  };
+
+  const deliveryStatusMap: Record<DeliveryStatus, { label: string; color: string }> = {
+    pending: { label: '待签收', color: '#94a3b8' },
+    approved: { label: '已通过', color: '#34d399' },
+    rejected: { label: '退回修改', color: '#f87171' },
   };
 
   const roleLabelMap: Record<Role, string> = {
@@ -92,108 +107,145 @@ function generateExportHTML(projectName: string, storyboards: Storyboard[], view
       </div>
     `;
 
-    const gapListHTML = `
-      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:24px;page-break-inside:avoid;">
-        <div style="padding:16px 20px;border-bottom:1px solid #e2e8f0;">
-          <div style="font-size:16px;font-weight:600;color:#1e293b;">素材缺口清单</div>
-          <div style="font-size:12px;color:#64748b;margin-top:2px;">共 ${nonReadyStoryboards.length} 个分镜待处理</div>
+    const storyboardBlocksHTML = storyboards.map(sb => {
+      const ms = statusMap[sb.materialStatus];
+      const rs = reviewStatusMap[sb.reviewStatus];
+      const isNotReady = sb.materialStatus !== 'ready';
+
+      const comments = getComments(sb.id);
+      const latestByRole: Record<string, Comment> = {};
+      comments.forEach(c => {
+        if (!latestByRole[c.authorRole] || new Date(c.createdAt) > new Date(latestByRole[c.authorRole].createdAt)) {
+          latestByRole[c.authorRole] = c;
+        }
+      });
+      const hasComments = Object.keys(latestByRole).length > 0;
+
+      const commentsSection = hasComments
+        ? `<div style="margin-top:16px;padding-top:16px;border-top:1px solid #e2e8f0;">
+            <div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:12px;">评论摘要</div>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;">
+              ${(['director', 'writer', 'camera', 'editor'] as Role[]).map(role => {
+                const comment = latestByRole[role];
+                if (!comment) return '';
+                const roleColorMap: Record<string, string> = {
+                  director: '#a855f7', writer: '#60a5fa', camera: '#f87171', editor: '#34d399',
+                };
+                const rc = roleColorMap[role] || '#64748b';
+                return `
+                  <div style="flex:1;min-width:180px;background:#f8fafc;border-radius:8px;padding:12px;">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                      <span style="width:6px;height:6px;border-radius:50%;background:${rc};"></span>
+                      <span style="font-size:11px;font-weight:600;color:${rc};">${roleLabelMap[role]}</span>
+                      <span style="font-size:10px;color:#94a3b8;">${escapeHtml(comment.authorName)}</span>
+                    </div>
+                    <div style="font-size:12px;color:#334155;line-height:1.5;">${escapeHtml(comment.content)}</div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>`
+        : '';
+
+      return `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px;margin-bottom:20px;page-break-inside:avoid;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:14px;font-weight:700;color:#1e293b;font-family:monospace;">镜头 ${sb.order}</span>
+              <span style="font-size:12px;color:#64748b;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(sb.visualDescription || '')}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              ${isNotReady ? `<span style="font-size:11px;font-weight:600;color:#ef4444;background:#fef2f2;padding:3px 10px;border-radius:9999px;">素材未齐备</span>` : ''}
+              <span style="font-size:11px;font-weight:500;color:${ms.color};background:${ms.color}1a;padding:3px 8px;border-radius:9999px;">${ms.label}</span>
+              <span style="font-size:11px;font-weight:500;color:${rs.color};background:${rs.color}1a;padding:3px 8px;border-radius:9999px;">${rs.label}</span>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+            <div>
+              <div style="font-size:10px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">画面描述</div>
+              <div style="font-size:12px;color:#334155;line-height:1.6;">${escapeHtml(sb.visualDescription || '—')}</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">台词</div>
+              <div style="font-size:12px;color:#b45309;line-height:1.6;font-style:italic;">${sb.dialogue ? `「${escapeHtml(sb.dialogue)}」` : '—'}</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
+            <div>
+              <div style="font-size:10px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">时长</div>
+              <div style="font-size:12px;color:#334155;font-family:monospace;">${sb.duration}s</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">配乐建议</div>
+              <div style="font-size:12px;color:#334155;">${escapeHtml(sb.musicSuggestion || '—')}</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">拍摄备注</div>
+              <div style="font-size:12px;color:#334155;line-height:1.6;">${escapeHtml(sb.shootingNotes || '—')}</div>
+            </div>
+          </div>
+
+          ${isNotReady ? `
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+              <span style="color:#ef4444;font-size:14px;">⚠️</span>
+              <span style="font-size:12px;color:#dc2626;font-weight:500;">素材缺口：当前状态为 <strong>${ms.label}</strong>，尚未齐备</span>
+            </div>
+          ` : ''}
+
+          <div style="background:#f8fafc;border-radius:8px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:12px;color:#64748b;">剪辑结论</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:11px;font-weight:500;color:${rs.color};background:${rs.color}1a;padding:3px 10px;border-radius:9999px;">${rs.label}</span>
+              ${sb.reviewNotes ? `<span style="font-size:12px;color:#64748b;">${escapeHtml(sb.reviewNotes)}</span>` : ''}
+            </div>
+          </div>
+
+          ${commentsSection}
         </div>
-        <div style="overflow-x:auto;">
+      `;
+    }).join('');
+
+    let signOffHTML = '';
+    if (signOffs && signOffs.length > 0) {
+      const latestStatus = signOffs[0].status;
+      const ds = deliveryStatusMap[latestStatus];
+      signOffHTML = `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px;page-break-inside:avoid;">
+          <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:16px;">交付签收记录</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+            <span style="font-size:12px;color:#64748b;">当前状态：</span>
+            <span style="font-size:11px;font-weight:600;color:${ds.color};background:${ds.color}1a;padding:3px 10px;border-radius:9999px;">${ds.label}</span>
+          </div>
           <table style="width:100%;border-collapse:collapse;">
             <thead>
               <tr style="background:#f8fafc;">
-                <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">镜头编号</th>
-                <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">画面描述</th>
-                <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">当前状态</th>
-                <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">验收状态</th>
-                <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">验收备注</th>
+                <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">时间</th>
+                <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">签收人</th>
+                <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">角色</th>
+                <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">状态</th>
+                <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">意见</th>
               </tr>
             </thead>
             <tbody>
-              ${nonReadyStoryboards.map(sb => {
-                const ms = statusMap[sb.materialStatus];
-                const rs = reviewStatusMap[sb.reviewStatus];
+              ${signOffs.map(so => {
+                const soDs = deliveryStatusMap[so.status];
                 return `
                   <tr style="border-bottom:1px solid #f1f5f9;">
-                    <td style="padding:12px 16px;font-size:12px;font-weight:500;color:#1e293b;font-family:monospace;">${sb.order}</td>
-                    <td style="padding:12px 16px;font-size:12px;color:#334155;max-width:300px;line-height:1.5;">${escapeHtml(sb.visualDescription || '—')}</td>
-                    <td style="padding:12px 16px;">
-                      <span style="font-size:11px;font-weight:500;color:${ms.color};background:${ms.color}1a;padding:3px 8px;border-radius:9999px;">${ms.label}</span>
-                    </td>
-                    <td style="padding:12px 16px;">
-                      <span style="font-size:11px;font-weight:500;color:${rs.color};background:${rs.color}1a;padding:3px 8px;border-radius:9999px;">${rs.label}</span>
-                    </td>
-                    <td style="padding:12px 16px;font-size:12px;color:#64748b;max-width:200px;line-height:1.5;">${escapeHtml(sb.reviewNotes || '—')}</td>
+                    <td style="padding:10px 12px;font-size:11px;color:#64748b;">${new Date(so.createdAt).toLocaleString('zh-CN')}</td>
+                    <td style="padding:10px 12px;font-size:11px;color:#1e293b;font-weight:500;">${escapeHtml(so.signerName)}</td>
+                    <td style="padding:10px 12px;font-size:11px;color:#64748b;">${roleLabelMap[so.signerRole]}</td>
+                    <td style="padding:10px 12px;"><span style="font-size:10px;font-weight:500;color:${soDs.color};background:${soDs.color}1a;padding:2px 8px;border-radius:9999px;">${soDs.label}</span></td>
+                    <td style="padding:10px 12px;font-size:11px;color:#64748b;max-width:200px;line-height:1.5;">${escapeHtml(so.notes || '—')}</td>
                   </tr>
                 `;
               }).join('')}
-              ${nonReadyStoryboards.length === 0 ? `
-                <tr>
-                  <td colspan="5" style="padding:32px;text-align:center;font-size:12px;color:#94a3b8;">所有分镜素材已齐备 ✅</td>
-                </tr>
-              ` : ''}
             </tbody>
           </table>
         </div>
-      </div>
-    `;
-
-    const commentsHTML = `
-      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;page-break-inside:avoid;">
-        <div style="padding:16px 20px;border-bottom:1px solid #e2e8f0;">
-          <div style="font-size:16px;font-weight:600;color:#1e293b;">评论结论摘要</div>
-          <div style="font-size:12px;color:#64748b;margin-top:2px;">各角色最新审核意见</div>
-        </div>
-        <div style="padding:20px;">
-          ${storyboards.map(sb => {
-            const comments = getComments(sb.id);
-            const latestByRole: Record<string, Comment> = {};
-            comments.forEach(c => {
-              if (!latestByRole[c.authorRole] || new Date(c.createdAt) > new Date(latestByRole[c.authorRole].createdAt)) {
-                latestByRole[c.authorRole] = c;
-              }
-            });
-            const hasComments = Object.keys(latestByRole).length > 0;
-            return `
-              <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #f1f5f9;">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                  <span style="font-size:12px;font-weight:600;color:#1e293b;font-family:monospace;">镜头 ${sb.order}</span>
-                  <span style="font-size:11px;color:#64748b;">${escapeHtml(sb.visualDescription || '')}</span>
-                </div>
-                ${hasComments ? `
-                  <div style="display:flex;flex-wrap:wrap;gap:12px;">
-                    ${(['director', 'writer', 'camera', 'editor'] as Role[]).map(role => {
-                      const comment = latestByRole[role];
-                      if (!comment) return '';
-                      const color = ROLE_CONFIG[role].color.replace('text-', '');
-                      const colorMap: Record<string, string> = {
-                        'purple-400': '#a855f7',
-                        'blue-400': '#60a5fa',
-                        'red-400': '#f87171',
-                        'emerald-400': '#34d399',
-                      };
-                      const roleColor = colorMap[color] || '#64748b';
-                      return `
-                        <div style="flex:1;min-width:200px;background:#f8fafc;border-radius:8px;padding:12px;">
-                          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                            <span style="width:6px;height:6px;border-radius:50%;background:${roleColor};"></span>
-                            <span style="font-size:11px;font-weight:600;color:${roleColor};">${roleLabelMap[role]}</span>
-                            <span style="font-size:10px;color:#94a3b8;">${escapeHtml(comment.authorName)}</span>
-                          </div>
-                          <div style="font-size:12px;color:#334155;line-height:1.5;">${escapeHtml(comment.content)}</div>
-                        </div>
-                      `;
-                    }).join('')}
-                  </div>
-                ` : `
-                  <div style="font-size:12px;color:#94a3b8;font-style:italic;">暂无评论</div>
-                `}
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
+      `;
+    }
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -222,8 +274,8 @@ function generateExportHTML(projectName: string, storyboards: Storyboard[], view
     </div>
   ` : ''}
   ${overviewHTML}
-  ${gapListHTML}
-  ${commentsHTML}
+  ${storyboardBlocksHTML}
+  ${signOffHTML}
 </body>
 </html>`;
   }
@@ -305,9 +357,28 @@ export default function ExportCards() {
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [animKey, setAnimKey] = useState(0);
 
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [signOffStatus, setSignOffStatus] = useState<DeliveryStatus>('approved');
+  const [signOffName, setSignOffName] = useState('');
+  const [signOffRole, setSignOffRole] = useState<Role>('director');
+  const [signOffNotes, setSignOffNotes] = useState('');
+  const [rejectedIds, setRejectedIds] = useState<string[]>([]);
+
+  const packageRef = useRef<HTMLDivElement>(null);
+
   const getComments = useCallback((sbId: string) => {
     return store.getStoryboardComments(sbId);
   }, [store]);
+
+  const deliveryStatus = useMemo(() => {
+    if (!projectId) return 'pending' as DeliveryStatus;
+    return store.getLatestDeliveryStatus(projectId);
+  }, [projectId, store]);
+
+  const deliverySignOffs = useMemo(() => {
+    if (!projectId) return [];
+    return store.getProjectDeliverySignOffs(projectId);
+  }, [projectId, store]);
 
   const stats = useMemo(() => {
     const total = storyboards.length;
@@ -332,30 +403,97 @@ export default function ExportCards() {
 
   const handleExportAll = useCallback(() => {
     if (!project) return;
-    const html = generateExportHTML(project.name, storyboards, currentView, getComments);
+    const html = generateExportHTML(project.name, storyboards, currentView, getComments, deliverySignOffs);
     const win = window.open('', '_blank');
     if (!win) return;
     win.document.write(html);
     win.document.close();
     setTimeout(() => win.print(), 400);
-  }, [project, storyboards, currentView, getComments]);
+  }, [project, storyboards, currentView, getComments, deliverySignOffs]);
 
-  const handleDownloadPDF = useCallback(() => {
-    if (!project) return;
-    const html = generateExportHTML(project.name, storyboards, currentView, getComments);
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const date = new Date();
-    const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-    const fileName = `${project.name}_交付包_${dateStr}.html`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [project, storyboards, currentView, getComments]);
+  const handleDownloadPDF = useCallback(async () => {
+    if (!project || pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const container = document.createElement('div');
+      container.style.position = 'absolute';
+      container.style.left = '-9999px';
+      container.style.top = '0';
+      container.style.width = '794px';
+      container.style.background = '#fff';
+      container.style.color = '#1e293b';
+      container.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+      container.style.fontSize = '14px';
+      container.style.padding = '0';
+      document.body.appendChild(container);
+
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = generateExportHTML(project.name, storyboards, 'package', getComments, deliverySignOffs);
+      const bodyContent = tempDiv.querySelector('body');
+      if (bodyContent) {
+        container.innerHTML = bodyContent.innerHTML;
+      } else {
+        container.innerHTML = tempDiv.innerHTML;
+      }
+
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      while (heightLeft > 0) {
+        position = position - pdfHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      const safeName = project.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+      const date = new Date();
+      const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+      pdf.save(`${safeName}_交付包_${dateStr}.pdf`);
+
+      document.body.removeChild(container);
+    } catch (err) {
+      console.error('PDF generation failed:', err);
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [project, storyboards, getComments, deliverySignOffs, pdfLoading]);
+
+  const handleSignOff = useCallback(() => {
+    if (!projectId || !signOffName.trim()) return;
+    store.addDeliverySignOff(
+      projectId,
+      signOffStatus,
+      signOffName.trim(),
+      signOffRole,
+      signOffNotes.trim(),
+      signOffStatus === 'rejected' ? rejectedIds : [],
+    );
+    setSignOffName('');
+    setSignOffNotes('');
+    setRejectedIds([]);
+    setSignOffStatus('approved');
+  }, [projectId, store, signOffStatus, signOffName, signOffRole, signOffNotes, rejectedIds]);
+
+  const toggleRejectedId = useCallback((id: string) => {
+    setRejectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }, []);
 
   if (!project) {
     return <div className="flex items-center justify-center h-screen text-ink-500">项目不存在</div>;
@@ -377,6 +515,7 @@ export default function ExportCards() {
 
   const sb = storyboards[current];
   const msConfig = MATERIAL_STATUS_CONFIG[sb.materialStatus];
+  const dsConfig = DELIVERY_STATUS_CONFIG[deliveryStatus];
 
   return (
     <div className="h-screen flex flex-col bg-ink-900 text-white overflow-hidden">
@@ -385,6 +524,12 @@ export default function ExportCards() {
           <ArrowLeft size={18} />
         </button>
         <h1 className="font-display font-semibold text-sm">{project.name}</h1>
+        {deliveryStatus !== 'pending' && (
+          <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${dsConfig.bg} ${dsConfig.color}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${dsConfig.dot}`} />
+            {dsConfig.label}
+          </span>
+        )}
         <div className="flex items-center gap-1 bg-ink-800 rounded-lg p-1">
           <button
             onClick={() => setCurrentView('cards')}
@@ -407,9 +552,11 @@ export default function ExportCards() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleDownloadPDF}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ink-700 hover:bg-ink-600 text-ink-200 text-xs font-medium transition-colors"
+            disabled={pdfLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ink-700 hover:bg-ink-600 text-ink-200 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <FileText size={14} />下载PDF
+            {pdfLoading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+            {pdfLoading ? '正在生成PDF...' : '下载PDF'}
           </button>
           <button
             onClick={handleExportAll}
@@ -543,7 +690,7 @@ export default function ExportCards() {
           </div>
         </>
       ) : (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" ref={packageRef}>
           <div className="max-w-5xl mx-auto px-6 py-6">
             {stats.hasIssues && (
               <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
@@ -601,104 +748,273 @@ export default function ExportCards() {
               </div>
             </div>
 
-            <div className="bg-ink-800/50 rounded-2xl mb-6 overflow-hidden">
-              <div className="px-6 py-4 border-b border-ink-700">
-                <h2 className="text-sm font-semibold text-ink-200">素材缺口清单</h2>
-                <p className="text-xs text-ink-400 mt-1">共 {stats.nonReadyStoryboards.length} 个分镜待处理</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-ink-700/30">
-                      <th className="px-4 py-3 text-left text-xs font-medium text-ink-400">镜头编号</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-ink-400">画面描述</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-ink-400">当前状态</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-ink-400">验收状态</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-ink-400">验收备注</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stats.nonReadyStoryboards.map(sb => {
-                      const msConfig = MATERIAL_STATUS_CONFIG[sb.materialStatus];
-                      const rsConfig = REVIEW_STATUS_CONFIG[sb.reviewStatus];
-                      return (
-                        <tr key={sb.id} className="border-b border-ink-700/50 hover:bg-ink-700/20">
-                          <td className="px-4 py-3 text-xs font-mono text-ink-200">{sb.order}</td>
-                          <td className="px-4 py-3 text-xs text-ink-300 max-w-xs leading-relaxed">{sb.visualDescription || '—'}</td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${msConfig.bg} ${msConfig.color}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${msConfig.dot}`} />
-                              {msConfig.label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${rsConfig.bg} ${rsConfig.color}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${rsConfig.dot}`} />
-                              {rsConfig.label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-xs text-ink-400 max-w-xs leading-relaxed">{sb.reviewNotes || '—'}</td>
-                        </tr>
-                      );
-                    })}
-                    {stats.nonReadyStoryboards.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-xs text-ink-500">
-                          所有分镜素材已齐备 ✅
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            {storyboards.map(sbItem => {
+              const itemMs = MATERIAL_STATUS_CONFIG[sbItem.materialStatus];
+              const itemRs = REVIEW_STATUS_CONFIG[sbItem.reviewStatus];
+              const isNotReady = sbItem.materialStatus !== 'ready';
+              const comments = getComments(sbItem.id);
+              const latestByRole: Record<string, Comment> = {};
+              comments.forEach(c => {
+                if (!latestByRole[c.authorRole] || new Date(c.createdAt) > new Date(latestByRole[c.authorRole].createdAt)) {
+                  latestByRole[c.authorRole] = c;
+                }
+              });
+              const hasComments = Object.keys(latestByRole).length > 0;
 
-            <div className="bg-ink-800/50 rounded-2xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-ink-700">
-                <h2 className="text-sm font-semibold text-ink-200">评论结论摘要</h2>
-                <p className="text-xs text-ink-400 mt-1">各角色最新审核意见</p>
-              </div>
-              <div className="p-6 space-y-6">
-                {storyboards.map(sb => {
-                  const comments = getComments(sb.id);
-                  const latestByRole: Record<string, Comment> = {};
-                  comments.forEach(c => {
-                    if (!latestByRole[c.authorRole] || new Date(c.createdAt) > new Date(latestByRole[c.authorRole].createdAt)) {
-                      latestByRole[c.authorRole] = c;
-                    }
-                  });
-                  const hasComments = Object.keys(latestByRole).length > 0;
-                  return (
-                    <div key={sb.id} className="pb-6 border-b border-ink-700 last:border-0 last:pb-0">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-xs font-semibold font-mono text-ink-200">镜头 {sb.order}</span>
-                        <span className="text-xs text-ink-500 truncate max-w-md">{sb.visualDescription || ''}</span>
+              return (
+                <div key={sbItem.id} className="bg-ink-800/50 rounded-2xl p-6 mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-bold font-mono text-ink-200">镜头 {sbItem.order}</span>
+                      <span className="text-xs text-ink-500 truncate max-w-md">{sbItem.visualDescription || ''}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isNotReady && (
+                        <span className="text-[10px] font-semibold text-red-400 bg-red-500/15 px-2 py-0.5 rounded-full">
+                          素材未齐备
+                        </span>
+                      )}
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${itemMs.bg} ${itemMs.color}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${itemMs.dot}`} />
+                        {itemMs.label}
+                      </span>
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${itemRs.bg} ${itemRs.color}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${itemRs.dot}`} />
+                        {itemRs.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <span className="text-[10px] text-ink-400 tracking-wider uppercase">画面描述</span>
+                      <p className="text-xs text-ink-200 mt-1 leading-relaxed">{sbItem.visualDescription || '—'}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-ink-400 tracking-wider uppercase">台词</span>
+                      <p className="text-xs text-amber-300/80 mt-1 leading-relaxed italic font-body">
+                        {sbItem.dialogue ? `「${sbItem.dialogue}」` : '—'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <span className="text-[10px] text-ink-400 tracking-wider uppercase">时长</span>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <Clock size={12} className="text-ink-400" />
+                        <span className="text-xs text-ink-200 font-mono">{sbItem.duration}s</span>
                       </div>
-                      {hasComments ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {(['director', 'writer', 'camera', 'editor'] as Role[]).map(role => {
-                            const comment = latestByRole[role];
-                            if (!comment) return null;
-                            const roleConfig = ROLE_CONFIG[role];
-                            return (
-                              <div key={role} className={`${roleConfig.bg} rounded-xl p-3`}>
-                                <div className="flex items-center gap-2 mb-2">
-                                  <span className={`w-2 h-2 rounded-full ${roleConfig.dot}`} />
-                                  <span className={`text-[11px] font-semibold ${roleConfig.color}`}>{roleConfig.label}</span>
-                                  <span className="text-[10px] text-ink-500">{comment.authorName}</span>
-                                </div>
-                                <p className="text-xs text-ink-300 leading-relaxed">{comment.content}</p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-ink-500 italic">暂无评论</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-ink-400 tracking-wider uppercase">配乐建议</span>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <Music size={12} className="text-ink-400" />
+                        <span className="text-xs text-ink-200">{sbItem.musicSuggestion || '—'}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-ink-400 tracking-wider uppercase">拍摄备注</span>
+                      <div className="flex items-start gap-1.5 mt-1">
+                        <Camera size={12} className="text-ink-400 mt-0.5 shrink-0" />
+                        <span className="text-xs text-ink-200 leading-relaxed">{sbItem.shootingNotes || '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {isNotReady && (
+                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2">
+                      <AlertTriangle size={16} className="text-red-400 shrink-0" />
+                      <span className="text-xs text-red-300 font-medium">素材缺口：当前状态为「{itemMs.label}」，尚未齐备</span>
+                    </div>
+                  )}
+
+                  <div className="bg-ink-700/30 rounded-xl p-3 flex items-center justify-between mb-4">
+                    <span className="text-xs text-ink-400">剪辑结论</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2.5 py-0.5 rounded-full ${itemRs.bg} ${itemRs.color}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${itemRs.dot}`} />
+                        {itemRs.label}
+                      </span>
+                      {sbItem.reviewNotes && (
+                        <span className="text-xs text-ink-400">{sbItem.reviewNotes}</span>
                       )}
                     </div>
-                  );
-                })}
+                  </div>
+
+                  {hasComments && (
+                    <div className="pt-4 border-t border-ink-700">
+                      <h3 className="text-xs font-semibold text-ink-300 mb-3">评论摘要</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {(['director', 'writer', 'camera', 'editor'] as Role[]).map(role => {
+                          const comment = latestByRole[role];
+                          if (!comment) return null;
+                          const roleConfig = ROLE_CONFIG[role];
+                          return (
+                            <div key={role} className={`${roleConfig.bg} rounded-xl p-3`}>
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className={`w-2 h-2 rounded-full ${roleConfig.dot}`} />
+                                <span className={`text-[11px] font-semibold ${roleConfig.color}`}>{roleConfig.label}</span>
+                                <span className="text-[10px] text-ink-500">{comment.authorName}</span>
+                              </div>
+                              <p className="text-xs text-ink-300 leading-relaxed">{comment.content}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <div className="bg-ink-800/50 rounded-2xl p-6 mb-6">
+              <div className="flex items-center gap-3 mb-4">
+                <ClipboardCheck size={18} className="text-amber-400" />
+                <h2 className="text-sm font-semibold text-ink-200">交付签收</h2>
+                <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${dsConfig.bg} ${dsConfig.color}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${dsConfig.dot}`} />
+                  {dsConfig.label}
+                </span>
               </div>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] text-ink-400 tracking-wider uppercase block mb-1.5">签收人姓名</label>
+                    <input
+                      type="text"
+                      value={signOffName}
+                      onChange={e => setSignOffName(e.target.value)}
+                      className="w-full px-3 py-2 bg-ink-700/50 border border-ink-600 rounded-lg text-xs text-ink-200 placeholder-ink-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      placeholder="请输入姓名"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-ink-400 tracking-wider uppercase block mb-1.5">签收人角色</label>
+                    <select
+                      value={signOffRole}
+                      onChange={e => setSignOffRole(e.target.value as Role)}
+                      className="w-full px-3 py-2 bg-ink-700/50 border border-ink-600 rounded-lg text-xs text-ink-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    >
+                      <option value="director">编导</option>
+                      <option value="writer">文案</option>
+                      <option value="camera">拍摄</option>
+                      <option value="editor">剪辑</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-ink-400 tracking-wider uppercase block mb-1.5">签收状态</label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setSignOffStatus('approved')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
+                        signOffStatus === 'approved'
+                          ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/50'
+                          : 'bg-ink-700/50 text-ink-400 hover:text-ink-200'
+                      }`}
+                    >
+                      <CheckCircle size={14} />
+                      已通过
+                    </button>
+                    <button
+                      onClick={() => setSignOffStatus('rejected')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
+                        signOffStatus === 'rejected'
+                          ? 'bg-red-500/20 text-red-400 ring-1 ring-red-500/50'
+                          : 'bg-ink-700/50 text-ink-400 hover:text-ink-200'
+                      }`}
+                    >
+                      <XCircle size={14} />
+                      退回修改
+                    </button>
+                  </div>
+                </div>
+
+                {signOffStatus === 'rejected' && (
+                  <div>
+                    <label className="text-[10px] text-ink-400 tracking-wider uppercase block mb-1.5">退回分镜</label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {storyboards.map(sbItem => (
+                        <label key={sbItem.id} className="flex items-center gap-2 px-3 py-2 bg-ink-700/30 rounded-lg cursor-pointer hover:bg-ink-700/50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={rejectedIds.includes(sbItem.id)}
+                            onChange={() => toggleRejectedId(sbItem.id)}
+                            className="w-3.5 h-3.5 rounded border-ink-500 bg-ink-700 text-red-500 focus:ring-red-500/50"
+                          />
+                          <span className="text-[11px] text-ink-300">
+                            <span className="font-mono text-ink-200">{sbItem.order}</span>
+                            {' '}{sbItem.visualDescription?.slice(0, 20) || '—'}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-[10px] text-ink-400 tracking-wider uppercase block mb-1.5">签收意见</label>
+                  <textarea
+                    value={signOffNotes}
+                    onChange={e => setSignOffNotes(e.target.value)}
+                    rows={3}
+                    className="w-full px-3 py-2 bg-ink-700/50 border border-ink-600 rounded-lg text-xs text-ink-200 placeholder-ink-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                    placeholder="请输入签收意见..."
+                  />
+                </div>
+
+                <button
+                  onClick={handleSignOff}
+                  disabled={!signOffName.trim()}
+                  className="px-6 py-2 bg-amber-500 hover:bg-amber-450 text-ink-900 text-xs font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  提交签收
+                </button>
+              </div>
+
+              {deliverySignOffs.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-ink-700">
+                  <h3 className="text-xs font-semibold text-ink-300 mb-3">签收历史</h3>
+                  <div className="space-y-3">
+                    {deliverySignOffs.map(so => {
+                      const soConfig = DELIVERY_STATUS_CONFIG[so.status];
+                      const soRoleConfig = ROLE_CONFIG[so.signerRole];
+                      return (
+                        <div key={so.id} className="bg-ink-700/30 rounded-xl p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${soConfig.bg} ${soConfig.color}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${soConfig.dot}`} />
+                                {soConfig.label}
+                              </span>
+                              <span className="text-xs font-medium text-ink-200">{so.signerName}</span>
+                              <span className={`text-[10px] font-medium ${soRoleConfig.color}`}>{soRoleConfig.label}</span>
+                            </div>
+                            <span className="text-[10px] text-ink-500">{new Date(so.createdAt).toLocaleString('zh-CN')}</span>
+                          </div>
+                          {so.notes && <p className="text-xs text-ink-400 mt-1">{so.notes}</p>}
+                          {so.rejectedStoryboardIds.length > 0 && (
+                            <div className="mt-2 flex items-center gap-1 flex-wrap">
+                              <span className="text-[10px] text-ink-500">退回分镜：</span>
+                              {so.rejectedStoryboardIds.map(id => {
+                                const rSb = storyboards.find(s => s.id === id);
+                                return rSb ? (
+                                  <span key={id} className="text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
+                                    镜头{rSb.order}
+                                  </span>
+                                ) : null;
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

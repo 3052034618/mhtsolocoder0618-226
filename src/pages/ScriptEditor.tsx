@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useProjectStore } from '@/store/useProjectStore';
 import type { Storyboard, Comment as TComment, Member, MaterialStatus, Role, ReviewStatus } from '@/types';
-import { ROLE_CONFIG, MATERIAL_STATUS_CONFIG, REVIEW_STATUS_CONFIG } from '@/types';
+import { ROLE_CONFIG, MATERIAL_STATUS_CONFIG, REVIEW_STATUS_CONFIG, DELIVERY_STATUS_CONFIG } from '@/types';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Plus, Trash2, Clock, Film, MessageCircle, ChevronRight,
-  ArrowLeft, Download, Image, Send, AtSign, Check, X, History, Star, RotateCcw,
+  ArrowLeft, Download, Image, Send, AtSign, Check, X, History, Star, RotateCcw, AlertTriangle,
 } from 'lucide-react';
 
 const fmt = (s: number) => {
@@ -54,6 +54,16 @@ export default function ScriptEditor() {
   const selectedMaterials = selectedId ? store.getStoryboardMaterials(selectedId) : [];
   const versions = selectedId ? store.getStoryboardVersions(selectedId) : [];
   const isInLibrary = store.library.some(l => l.projectId === projectId);
+
+  const deliverySignOffs = store.getProjectDeliverySignOffs(projectId!);
+  const latestDelivery = deliverySignOffs.length > 0 ? deliverySignOffs[0] : null;
+  const isDeliveryRejected = latestDelivery?.status === 'rejected';
+
+  const isStoryboardRejected = (sbId: string) => {
+    if (!isDeliveryRejected) return false;
+    if (!latestDelivery) return false;
+    return latestDelivery.rejectedStoryboardIds.length === 0 || latestDelivery.rejectedStoryboardIds.includes(sbId);
+  };
 
   useEffect(() => { if (project) setProjectName(project.name); }, [project?.name]);
 
@@ -144,12 +154,13 @@ export default function ScriptEditor() {
             <div key={sb.id} className="flex items-center gap-2 animate-slide-in-up" style={{ animationDelay: `${i * 60}ms`, animationFillMode: 'both' }}>
               <button onClick={() => setSelectedId(sb.id)}
                 className={`relative w-52 h-36 rounded-xl p-3 flex flex-col gap-1.5 border transition-all cursor-pointer shrink-0
-                  ${sb.id === selectedId ? 'border-amber-500 bg-ink-700 card-glow' : 'border-ink-600 bg-ink-800 hover:border-ink-500 hover:bg-ink-700'}`}>
+                  ${isStoryboardRejected(sb.id) ? 'border-red-500/60' : sb.id === selectedId ? 'border-amber-500 bg-ink-700 card-glow' : 'border-ink-600 bg-ink-800 hover:border-ink-500 hover:bg-ink-700'}`}>
                 <span className="absolute top-2 left-2 text-[10px] font-mono bg-ink-600 text-ink-300 rounded-full w-5 h-5 flex items-center justify-center">{sb.order}</span>
                 <span className="absolute top-2 right-2 flex items-center gap-1">
                   <span className="text-[10px] text-ink-400 font-mono flex items-center gap-0.5"><Clock size={10} />{sb.duration}s</span>
                   {sb.reviewStatus !== 'pending' && <span className={`w-2 h-2 rounded-full ${REVIEW_STATUS_CONFIG[sb.reviewStatus].dot}`} />}
                   <span className={`w-2 h-2 rounded-full ${sb.materialReady ? 'bg-emerald-400' : 'bg-ink-500'}`} />
+                  {isStoryboardRejected(sb.id) && <AlertTriangle size={10} className="text-red-400" />}
                 </span>
                 <p className="text-[11px] text-ink-300 mt-5 line-clamp-2 leading-tight">{sb.visualDescription || '—'}</p>
                 <p className="text-[11px] text-amber-400/70 line-clamp-2 leading-tight italic">{sb.dialogue || '—'}</p>
@@ -262,6 +273,29 @@ export default function ScriptEditor() {
                   </div>
                 )}
               </div>
+
+              {isDeliveryRejected && isStoryboardRejected(selected.id) && latestDelivery && (
+                <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 space-y-2">
+                  <div className="flex items-center gap-1.5 text-red-400 text-xs font-medium">
+                    <AlertTriangle size={13} />
+                    <span>交付退回</span>
+                  </div>
+                  {latestDelivery.notes && (
+                    <p className="text-[11px] text-red-300/80 leading-relaxed">
+                      <span className="text-red-400/60">「</span>
+                      {latestDelivery.notes}
+                      <span className="text-red-400/60">」</span>
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 text-[10px] text-red-400/60">
+                    <span className="flex items-center gap-1">
+                      <span className={`w-1.5 h-1.5 rounded-full ${ROLE_CONFIG[latestDelivery.signerRole].dot}`} />
+                      {latestDelivery.signerName}
+                    </span>
+                    <span>{new Date(latestDelivery.createdAt).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-')}</span>
+                  </div>
+                </div>
+              )}
 
               {/* Version History */}
               <div className="pt-2 border-t border-ink-600">

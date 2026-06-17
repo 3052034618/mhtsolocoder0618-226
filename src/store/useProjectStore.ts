@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Project, Storyboard, Comment, Material, VersionRecord, Member, NarrativeTemplate, LibraryScript, ReviewStatus } from '@/types';
+import type { Project, Storyboard, Comment, Material, VersionRecord, Member, NarrativeTemplate, LibraryScript, ReviewStatus, DeliverySignOff, DeliveryStatus, Role } from '@/types';
 import { GRADIENTS } from '@/types';
 import {
   MOCK_PROJECTS, MOCK_STORYBOARDS, MOCK_COMMENTS, MOCK_MATERIALS,
@@ -45,6 +45,11 @@ interface ProjectStore {
   getMemberById: (id: string) => Member | undefined;
   getCurrentUser: () => Member;
  updateStoryboardReview: (id: string, status: ReviewStatus, notes?: string) => void;
+
+  deliverySignOffs: DeliverySignOff[];
+  addDeliverySignOff(projectId: string, status: DeliveryStatus, signerName: string, signerRole: Role, notes: string, rejectedStoryboardIds: string[]): void;
+  getProjectDeliverySignOffs(projectId: string): DeliverySignOff[];
+  getLatestDeliveryStatus(projectId: string): DeliveryStatus;
 }
 
 let idCounter = 100;
@@ -61,6 +66,8 @@ const persistOptions = {
       materialReady: sb.materialReady ?? false,
       reviewStatus: sb.reviewStatus || 'pending',
       reviewNotes: sb.reviewNotes || '',
+      reviewedAt: sb.reviewedAt ?? undefined,
+      reviewerId: sb.reviewerId ?? undefined,
     })) || [];
     s.projects = s.projects?.map(p => ({
       ...p,
@@ -69,12 +76,26 @@ const persistOptions = {
     s.comments = s.comments?.map(c => ({
       ...c,
       authorRole: c.authorRole || 'director',
+      mentionIds: c.mentionIds || [],
     })) || [];
     s.versions = s.versions?.map(v => ({
       ...v,
       operatorRole: v.operatorRole || 'director',
     })) || [];
+    s.deliverySignOffs = s.deliverySignOffs || [];
   },
+  partialize: (state: ProjectStore) => ({
+    projects: state.projects,
+    storyboards: state.storyboards,
+    comments: state.comments,
+    materials: state.materials,
+    versions: state.versions,
+    members: state.members,
+    templates: state.templates,
+    library: state.library,
+    currentUserId: state.currentUserId,
+    deliverySignOffs: state.deliverySignOffs,
+  }),
 };
 
 export const useProjectStore = create<ProjectStore>()(
@@ -88,6 +109,7 @@ export const useProjectStore = create<ProjectStore>()(
       members: MOCK_MEMBERS,
       templates: MOCK_TEMPLATES,
       library: MOCK_LIBRARY,
+      deliverySignOffs: [],
       currentUserId: 'm4',
 
       addProject: (name, type, templateId, memberIds) => {
@@ -448,6 +470,41 @@ export const useProjectStore = create<ProjectStore>()(
       getCurrentUser: () => {
         const id = get().currentUserId;
         return get().members.find(m => m.id === id) || MOCK_MEMBERS[0];
+      },
+
+      addDeliverySignOff: (projectId, status, signerName, signerRole, notes, rejectedStoryboardIds) => {
+        const signOff: DeliverySignOff = {
+          id: genId(),
+          projectId,
+          status,
+          signerName,
+          signerRole,
+          notes,
+          rejectedStoryboardIds,
+          createdAt: new Date().toISOString(),
+        };
+        set(state => ({ deliverySignOffs: [...state.deliverySignOffs, signOff] }));
+        if (status === 'rejected') {
+          const ids = rejectedStoryboardIds.length > 0
+            ? rejectedStoryboardIds
+            : get().storyboards.filter(s => s.projectId === projectId).map(s => s.id);
+          ids.forEach(id => {
+            get().updateStoryboardReview(id, 'reshoot', notes);
+          });
+        }
+      },
+
+      getProjectDeliverySignOffs: (projectId) => {
+        return get().deliverySignOffs
+          .filter(s => s.projectId === projectId)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      },
+
+      getLatestDeliveryStatus: (projectId) => {
+        const signOffs = get().deliverySignOffs
+          .filter(s => s.projectId === projectId)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return signOffs.length > 0 ? signOffs[0].status : 'pending';
       },
     }),
     persistOptions satisfies Record<string, unknown>

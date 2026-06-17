@@ -4,6 +4,8 @@ export type MaterialStatus = 'not_shot' | 'uploaded' | 'reshoot' | 'ready';
 
 export type ReviewStatus = 'pending' | 'pass' | 'reshoot' | 'revoice' | 'notes';
 
+export type DeliveryStatus = 'pending' | 'approved' | 'rejected';
+
 export interface Project {
   id: string;
   name: string;
@@ -89,6 +91,17 @@ export interface LibraryScript {
   archivedAt: string;
 }
 
+export interface DeliverySignOff {
+  id: string;
+  projectId: string;
+  status: DeliveryStatus;
+  signerName: string;
+  signerRole: Role;
+  notes: string;
+  rejectedStoryboardIds: string[];
+  createdAt: string;
+}
+
 export const ROLE_CONFIG: Record<Role, { label: string; color: string; bg: string; dot: string }> = {
   director: { label: '编导', color: 'text-purple-400', bg: 'bg-purple-500/20', dot: 'bg-purple-400' },
   writer: { label: '文案', color: 'text-blue-400', bg: 'bg-blue-500/20', dot: 'bg-blue-400' },
@@ -109,6 +122,12 @@ export const REVIEW_STATUS_CONFIG: Record<ReviewStatus, { label: string; color: 
   reshoot: { label: '需补镜', color: 'text-red-400', bg: 'bg-red-500/20', dot: 'bg-red-400' },
   revoice: { label: '需补音', color: 'text-purple-400', bg: 'bg-purple-500/20', dot: 'bg-purple-400' },
   notes: { label: '有备注', color: 'text-amber-400', bg: 'bg-amber-500/20', dot: 'bg-amber-400' },
+};
+
+export const DELIVERY_STATUS_CONFIG: Record<DeliveryStatus, { label: string; color: string; bg: string; dot: string }> = {
+  pending: { label: '待签收', color: 'text-slate-400', bg: 'bg-slate-500/20', dot: 'bg-slate-400' },
+  approved: { label: '已通过', color: 'text-emerald-400', bg: 'bg-emerald-500/20', dot: 'bg-emerald-400' },
+  rejected: { label: '退回修改', color: 'text-red-400', bg: 'bg-red-500/20', dot: 'bg-red-400' },
 };
 
 export const PROJECT_TYPES = ['搞笑', '情感', '知识', '美食', '旅行', '时尚', '科技', '生活'] as const;
@@ -132,4 +151,5 @@ export const FIELD_LABELS: Record<string, string> = {
   materialReady: '素材就绪',
   reviewStatus: '验收状态',
   reviewNotes: '验收备注',
+  deliveryStatus: '交付状态',
 };
