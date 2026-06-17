@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useProjectStore } from '@/store/useProjectStore';
-import type { Storyboard, Comment as TComment, Member } from '@/types';
-import { ROLE_CONFIG } from '@/types';
+import type { Storyboard, Comment as TComment, Member, MaterialStatus, Role } from '@/types';
+import { ROLE_CONFIG, MATERIAL_STATUS_CONFIG } from '@/types';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Plus, Trash2, Clock, Film, MessageCircle, ChevronRight,
@@ -44,10 +44,13 @@ export default function ScriptEditor() {
   const [mentionIds, setMentionIds] = useState<string[]>([]);
   const [showMentions, setShowMentions] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
+  const [commentTab, setCommentTab] = useState<string>('all');
+  const [materialStatusOpen, setMaterialStatusOpen] = useState(false);
   const commentRef = useRef<HTMLTextAreaElement>(null);
 
   const selected = storyboards.find(s => s.id === selectedId) || null;
   const comments = selectedId ? store.getStoryboardComments(selectedId) : [];
+  const filteredComments = commentTab === 'all' ? comments : comments.filter(c => c.authorRole === commentTab);
   const selectedMaterials = selectedId ? store.getStoryboardMaterials(selectedId) : [];
   const versions = selectedId ? store.getStoryboardVersions(selectedId) : [];
   const isInLibrary = store.library.some(l => l.projectId === projectId);
@@ -198,13 +201,31 @@ export default function ScriptEditor() {
               <label className="block"><span className="text-[11px] text-ink-400 mb-1 block">拍摄备注</span>
                 <textarea rows={2} value={selected.shootingNotes} onChange={e => handleUpdate({ shootingNotes: e.target.value })}
                   className="w-full bg-ink-700 rounded-lg px-3 py-2 text-sm outline-none border border-ink-600 focus:border-amber-500/50 transition-colors" /></label>
-              <div className="flex items-center justify-between py-1">
-                <span className="text-xs text-ink-400">素材状态</span>
-                <button onClick={() => handleUpdate({ materialReady: !selected.materialReady })}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors
-                    ${selected.materialReady ? 'bg-emerald-500/20 text-emerald-400' : 'bg-ink-700 text-ink-400'}`}>
-                  {selected.materialReady && <Check size={12} />}就绪
-                </button>
+              <div className="relative">
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-xs text-ink-400">素材状态</span>
+                  <button onClick={() => setMaterialStatusOpen(!materialStatusOpen)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors ${MATERIAL_STATUS_CONFIG[selected.materialStatus].bg} ${MATERIAL_STATUS_CONFIG[selected.materialStatus].color}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${MATERIAL_STATUS_CONFIG[selected.materialStatus].dot}`} />
+                    {MATERIAL_STATUS_CONFIG[selected.materialStatus].label}
+                  </button>
+                </div>
+                {materialStatusOpen && (
+                  <div className="absolute left-0 right-0 z-10 mt-1 bg-ink-700 rounded-lg border border-ink-600 shadow-lg overflow-hidden">
+                    {(Object.keys(MATERIAL_STATUS_CONFIG) as MaterialStatus[]).map(status => {
+                      const sc = MATERIAL_STATUS_CONFIG[status];
+                      return (
+                        <button key={status}
+                          onClick={() => { handleUpdate({ materialStatus: status }); setMaterialStatusOpen(false); }}
+                          className={`flex items-center gap-2 w-full px-3 py-2 hover:bg-ink-600 text-xs transition-colors
+                            ${selected.materialStatus === status ? `${sc.bg} ${sc.color}` : 'text-ink-300'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                          {sc.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Version History */}
@@ -217,12 +238,15 @@ export default function ScriptEditor() {
                 {showVersions && (
                   <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
                     {versions.length === 0 && <p className="text-[11px] text-ink-500 py-2">暂无修改记录</p>}
-                    {versions.map(v => (
+                    {versions.map(v => {
+                      const vCfg = ROLE_CONFIG[v.operatorRole];
+                      return (
                       <div key={v.id} className="flex items-start gap-2 text-[11px] bg-ink-700/50 rounded-lg p-2">
-                        <div className="w-1 h-1 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                        <div className={`w-1.5 h-1.5 rounded-full ${vCfg.dot} mt-1.5 shrink-0`} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 mb-0.5">
                             <span className="font-medium text-ink-200">{v.operatorName}</span>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${vCfg.bg} ${vCfg.color}`}>{vCfg.label}</span>
                             <span className="text-ink-500">{new Date(v.timestamp).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
                           <p className="text-ink-400">
@@ -233,16 +257,33 @@ export default function ScriptEditor() {
                           </p>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
               {/* Comments */}
               <div className="pt-2 border-t border-ink-600">
-                <div className="flex items-center gap-1.5 mb-3"><MessageCircle size={14} className="text-ink-400" /><span className="text-xs font-medium text-ink-300">评论 ({comments.length})</span></div>
+                <div className="flex items-center gap-1.5 mb-2"><MessageCircle size={14} className="text-ink-400" /><span className="text-xs font-medium text-ink-300">评论 ({comments.length})</span></div>
+                <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                  {[
+                    { key: 'all', label: '全部', bg: 'bg-amber-500/20', color: 'text-amber-400', dot: 'bg-amber-400' },
+                    { key: 'director', label: '编导', ...ROLE_CONFIG.director },
+                    { key: 'writer', label: '文案', ...ROLE_CONFIG.writer },
+                    { key: 'camera', label: '拍摄', ...ROLE_CONFIG.camera },
+                    { key: 'editor', label: '剪辑', ...ROLE_CONFIG.editor },
+                  ].map(tab => (
+                    <button key={tab.key} onClick={() => setCommentTab(tab.key)}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors
+                        ${commentTab === tab.key ? `${tab.bg} ${tab.color}` : 'bg-ink-700 text-ink-400 hover:bg-ink-600'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${commentTab === tab.key ? tab.dot : 'bg-ink-500'}`} />
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
                 <div className="space-y-2.5 max-h-60 overflow-y-auto mb-3">
-                  {comments.map(c => {
+                  {filteredComments.map(c => {
                     const cfg = ROLE_CONFIG[c.authorRole];
                     const author = store.getMemberById(c.authorId);
                     return (
@@ -256,6 +297,7 @@ export default function ScriptEditor() {
                       </div>
                     );
                   })}
+                  {filteredComments.length === 0 && <p className="text-[11px] text-ink-500 py-2 text-center">暂无评论</p>}
                 </div>
 
                 <div className="relative">

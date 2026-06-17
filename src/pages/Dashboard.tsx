@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Clock, Film, Users, X, Sparkles, ChevronRight } from 'lucide-react';
 import { useProjectStore } from '@/store/useProjectStore';
-import type { Project, NarrativeTemplate } from '@/types';
+import type { Project, NarrativeTemplate, Member } from '@/types';
 import { ROLE_CONFIG, GRADIENTS, PROJECT_TYPES } from '@/types';
 
 function formatRelativeTime(dateStr: string): string {
@@ -26,14 +26,16 @@ export default function Dashboard() {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<string>(PROJECT_TYPES[0]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>(undefined);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>(['m1']);
 
   const handleCreate = () => {
     if (!newName.trim()) return;
-    const project = store.addProject(newName.trim(), newType, selectedTemplateId);
+    const project = store.addProject(newName.trim(), newType, selectedTemplateId, selectedMembers);
     setShowModal(false);
     setNewName('');
     setNewType(PROJECT_TYPES[0]);
     setSelectedTemplateId(undefined);
+    setSelectedMembers(['m1']);
     navigate(`/project/${project.id}`);
   };
 
@@ -42,6 +44,7 @@ export default function Dashboard() {
     setNewName('');
     setNewType(PROJECT_TYPES[0]);
     setSelectedTemplateId(undefined);
+    setSelectedMembers(['m1']);
   };
 
   return (
@@ -140,6 +143,44 @@ export default function Dashboard() {
                       <p className="text-xs text-ink-500 line-clamp-2">{template.description}</p>
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-ink-500 mb-1.5">团队成员</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {store.members.map((member) => {
+                    const isSelected = selectedMembers.includes(member.id);
+                    const isCurrentUser = member.id === 'm1';
+                    const roleCfg = ROLE_CONFIG[member.role];
+                    return (
+                      <button
+                        key={member.id}
+                        disabled={isCurrentUser}
+                        onClick={() => {
+                          if (isCurrentUser) return;
+                          setSelectedMembers((prev) =>
+                            prev.includes(member.id)
+                              ? prev.filter((id) => id !== member.id)
+                              : [...prev, member.id]
+                          );
+                        }}
+                        className={`flex items-center gap-2 p-3 rounded-lg border transition-all text-left ${
+                          isSelected
+                            ? 'border-amber-500 bg-amber-500/10'
+                            : 'border-ink-600 bg-ink-700 hover:border-ink-500'
+                        } ${isCurrentUser ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      >
+                        <span className="text-lg">{member.avatar}</span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium text-white truncate block">{member.name}</span>
+                        </div>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${roleCfg.bg} ${roleCfg.color}`}>
+                          {roleCfg.label}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

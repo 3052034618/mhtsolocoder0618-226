@@ -18,7 +18,7 @@ interface ProjectStore {
   library: LibraryScript[];
   currentUserId: string;
 
-  addProject: (name: string, type: string, templateId?: string) => Project;
+  addProject: (name: string, type: string, templateId?: string, memberIds?: string[]) => Project;
   updateProject: (id: string, data: Partial<Project>) => void;
   deleteProject: (id: string) => void;
 
@@ -30,6 +30,7 @@ interface ProjectStore {
 
   addComment: (storyboardId: string, content: string, mentionIds: string[]) => void;
   getStoryboardComments: (storyboardId: string) => Comment[];
+  getStoryboardCommentsByRole: (storyboardId: string) => Record<string, Comment[]>;
 
   addMaterial: (storyboardId: string, fileName: string, fileType: 'video' | 'image' | 'audio') => void;
   deleteMaterial: (id: string) => void;
@@ -61,7 +62,7 @@ export const useProjectStore = create<ProjectStore>()(
       library: MOCK_LIBRARY,
       currentUserId: 'm1',
 
-      addProject: (name, type, templateId) => {
+      addProject: (name, type, templateId, memberIds) => {
         const project: Project = {
           id: genId(),
           name,
@@ -70,7 +71,7 @@ export const useProjectStore = create<ProjectStore>()(
           coverGradient: GRADIENTS[Math.floor(Math.random() * GRADIENTS.length)],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          members: ['m1'],
+          members: memberIds || ['m1'],
         };
         const storyboards: Storyboard[] = [];
         if (templateId) {
@@ -87,6 +88,7 @@ export const useProjectStore = create<ProjectStore>()(
                 musicSuggestion: s.musicSuggestion || '',
                 shootingNotes: '',
                 materialReady: false,
+                materialStatus: 'not_shot',
               });
             });
           }
@@ -102,6 +104,7 @@ export const useProjectStore = create<ProjectStore>()(
             musicSuggestion: '',
             shootingNotes: '',
             materialReady: false,
+            materialStatus: 'not_shot',
           });
         }
         set(state => ({
@@ -159,6 +162,7 @@ export const useProjectStore = create<ProjectStore>()(
           musicSuggestion: '',
           shootingNotes: '',
           materialReady: false,
+          materialStatus: 'not_shot',
         };
         set(state => ({ storyboards: [...state.storyboards, sb] }));
         return sb;
@@ -181,14 +185,27 @@ export const useProjectStore = create<ProjectStore>()(
               newValue: String(data[key]),
               operatorId: operatorId || get().currentUserId,
               operatorName: currentUser.name,
+              operatorRole: currentUser.role,
               timestamp: new Date().toISOString(),
             });
           }
         });
 
+        const syncData: Partial<Storyboard> & Record<string, unknown> = { ...data };
+        if (data.materialStatus === 'ready') {
+          syncData.materialReady = true;
+        } else if (data.materialStatus as string && (data.materialStatus as string) !== 'ready') {
+          syncData.materialReady = false;
+        }
+        if (data.materialReady === true) {
+          syncData.materialStatus = 'ready';
+        } else if (data.materialReady === false && old.materialStatus === 'ready') {
+          syncData.materialStatus = 'uploaded';
+        }
+
         set(state => ({
           storyboards: state.storyboards.map(s =>
-            s.id === id ? { ...s, ...data } : s
+            s.id === id ? { ...s, ...syncData } : s
           ),
           versions: [...state.versions, ...versionRecords],
           projects: state.projects.map(p =>
@@ -249,6 +266,18 @@ export const useProjectStore = create<ProjectStore>()(
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       },
 
+      getStoryboardCommentsByRole: (storyboardId) => {
+        const comments = get().comments
+          .filter(c => c.storyboardId === storyboardId)
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        const grouped: Record<string, Comment[]> = {};
+        comments.forEach(c => {
+          if (!grouped[c.authorRole]) grouped[c.authorRole] = [];
+          grouped[c.authorRole].push(c);
+        });
+        return grouped;
+      },
+
       addMaterial: (storyboardId, fileName, fileType) => {
         const user = get().getCurrentUser();
         const material: Material = {
@@ -260,7 +289,14 @@ export const useProjectStore = create<ProjectStore>()(
           uploadedAt: new Date().toISOString(),
           uploadedBy: user.id,
         };
-        set(state => ({ materials: [...state.materials, material] }));
+        const sb = get().storyboards.find(s => s.id === storyboardId);
+        const statusUpdate = sb?.materialStatus === 'not_shot' ? { materialStatus: 'uploaded' as const, materialReady: false } : {};
+        set(state => ({
+          materials: [...state.materials, material],
+          storyboards: state.storyboards.map(s =>
+            s.id === storyboardId ? { ...s, ...statusUpdate } : s
+          ),
+        }));
       },
 
       deleteMaterial: (id) => {

@@ -1,4 +1,4 @@
-import type { Member, NarrativeTemplate, Project, Storyboard, Comment, Material, VersionRecord, LibraryScript } from '@/types';
+import type { Member, NarrativeTemplate, Project, Storyboard, Comment, Material, VersionRecord, LibraryScript, MaterialStatus } from '@/types';
 
 export const MOCK_MEMBERS: Member[] = [
   { id: 'm1', name: '张导', role: 'director', avatar: '🎬', color: '#8B5CF6' },
@@ -95,83 +95,89 @@ export const MOCK_PROJECTS: Project[] = [
   },
 ];
 
+const materialStatusMap: Record<string, MaterialStatus> = {
+  s1: 'ready', s2: 'ready', s3: 'uploaded', s4: 'not_shot', s5: 'not_shot',
+  s6: 'ready', s7: 'ready', s8: 'reshoot',
+  s9: 'not_shot', s10: 'not_shot', s11: 'not_shot',
+};
+
 export const MOCK_STORYBOARDS: Storyboard[] = [
   {
     id: 's1', projectId: 'p1', order: 1,
     visualDescription: '手机拍摄糊片的特写，手指抖动',
     dialogue: '你拍的照片总是糊的？90%的人不知道这个技巧！',
     duration: 3, musicSuggestion: '疑问音效+节奏鼓点',
-    shootingNotes: '需要微距镜头，手持抖动效果', materialReady: true,
+    shootingNotes: '需要微距镜头，手持抖动效果', materialReady: true, materialStatus: 'ready',
   },
   {
     id: 's2', projectId: 'p1', order: 2,
     visualDescription: '展示错误握持姿势，标红标注',
     dialogue: '问题出在你的握持方式上，这样拿手机肯定会抖',
     duration: 8, musicSuggestion: '轻快BGM起',
-    shootingNotes: '需要绿幕后期标注', materialReady: true,
+    shootingNotes: '需要绿幕后期标注', materialReady: true, materialStatus: 'ready',
   },
   {
     id: 's3', projectId: 'p1', order: 3,
     visualDescription: '正确握持演示，三步拆解',
     dialogue: '第一步，双手持机；第二步，手肘贴紧身体；第三步，利用音量键拍照',
     duration: 15, musicSuggestion: '轻快BGM持续',
-    shootingNotes: '需要俯拍+侧面两个机位', materialReady: false,
+    shootingNotes: '需要俯拍+侧面两个机位', materialReady: false, materialStatus: 'uploaded',
   },
   {
     id: 's4', projectId: 'p1', order: 4,
     visualDescription: '前后对比：糊片vs清晰照片',
     dialogue: '看到区别了吗？简单三步，出片率提升10倍',
     duration: 8, musicSuggestion: 'BGM渐强',
-    shootingNotes: '需要分屏对比效果', materialReady: false,
+    shootingNotes: '需要分屏对比效果', materialReady: false, materialStatus: 'not_shot',
   },
   {
     id: 's5', projectId: 'p1', order: 5,
     visualDescription: '关注引导+更多技巧预告',
     dialogue: '关注我，下期教你夜景怎么拍！',
     duration: 4, musicSuggestion: '结尾音效+BGM渐弱',
-    shootingNotes: '口播+贴纸动画', materialReady: false,
+    shootingNotes: '口播+贴纸动画', materialReady: false, materialStatus: 'not_shot',
   },
   {
     id: 's6', projectId: 'p2', order: 1,
     visualDescription: '深夜厨房暖光，食材特写',
     dialogue: '又是一个加班到深夜的日子…',
     duration: 5, musicSuggestion: '温柔钢琴BGM',
-    shootingNotes: '暖色调灯光，蒸汽效果', materialReady: true,
+    shootingNotes: '暖色调灯光，蒸汽效果', materialReady: true, materialStatus: 'ready',
   },
   {
     id: 's7', projectId: 'p2', order: 2,
     visualDescription: '烹饪过程：切菜、下锅、翻炒',
     dialogue: '但一碗热面，足以治愈一切',
     duration: 20, musicSuggestion: '温柔BGM+白噪音',
-    shootingNotes: '需要慢动作特写', materialReady: true,
+    shootingNotes: '需要慢动作特写', materialReady: true, materialStatus: 'ready',
   },
   {
     id: 's8', projectId: 'p2', order: 3,
     visualDescription: '成品展示，热气腾腾的面',
     dialogue: '深夜食堂，为你而开',
     duration: 8, musicSuggestion: 'BGM高潮',
-    shootingNotes: '需要升格拍摄蒸汽', materialReady: false,
+    shootingNotes: '需要升格拍摄蒸汽', materialReady: false, materialStatus: 'reshoot',
   },
   {
     id: 's9', projectId: 'p3', order: 1,
     visualDescription: '办公室日常，同事A在认真工作',
     dialogue: '今天老板说要表扬一个人…',
     duration: 5, musicSuggestion: '日常轻松BGM',
-    shootingNotes: '工位实拍', materialReady: false,
+    shootingNotes: '工位实拍', materialReady: false, materialStatus: 'not_shot',
   },
   {
     id: 's10', projectId: 'p3', order: 2,
     visualDescription: '同事B疯狂拍马屁',
     dialogue: '那肯定是我啦！我最近加班最多！',
     duration: 10, musicSuggestion: 'BGM加快',
-    shootingNotes: '夸张表情特写', materialReady: false,
+    shootingNotes: '夸张表情特写', materialReady: false, materialStatus: 'not_shot',
   },
   {
     id: 's11', projectId: 'p3', order: 3,
     visualDescription: '老板宣布结果，指向同事A',
     dialogue: '我表扬的是小张，他默默把项目做完了',
     duration: 5, musicSuggestion: '反转音效',
-    shootingNotes: '需要面部表情快速切换', materialReady: false,
+    shootingNotes: '需要面部表情快速切换', materialReady: false, materialStatus: 'not_shot',
   },
 ];
 
@@ -222,11 +228,11 @@ export const MOCK_MATERIALS: Material[] = [
 ];
 
 export const MOCK_VERSIONS: VersionRecord[] = [
-  { id: 'v1', storyboardId: 's1', field: 'dialogue', oldValue: '你的照片为什么总是糊？', newValue: '你拍的照片总是糊的？90%的人不知道这个技巧！', operatorId: 'm2', operatorName: '李文', timestamp: '2026-06-16T09:00:00Z' },
-  { id: 'v2', storyboardId: 's1', field: 'duration', oldValue: '5', newValue: '3', operatorId: 'm1', operatorName: '张导', timestamp: '2026-06-16T09:30:00Z' },
-  { id: 'v3', storyboardId: 's3', field: 'dialogue', oldValue: '第一步双手持机，第二步手肘贴紧身体，第三步用音量键拍照', newValue: '第一步，双手持机；第二步，手肘贴紧身体；第三步，利用音量键拍照', operatorId: 'm2', operatorName: '李文', timestamp: '2026-06-17T09:05:00Z' },
-  { id: 'v4', storyboardId: 's4', field: 'visualDescription', oldValue: '对比效果展示', newValue: '前后对比：糊片vs清晰照片', operatorId: 'm1', operatorName: '张导', timestamp: '2026-06-17T14:00:00Z' },
-  { id: 'v5', storyboardId: 's5', field: 'musicSuggestion', oldValue: '结尾音效', newValue: '结尾音效+BGM渐弱', operatorId: 'm4', operatorName: '赵剪', timestamp: '2026-06-18T08:10:00Z' },
+  { id: 'v1', storyboardId: 's1', field: 'dialogue', oldValue: '你的照片为什么总是糊？', newValue: '你拍的照片总是糊的？90%的人不知道这个技巧！', operatorId: 'm2', operatorName: '李文', operatorRole: 'writer', timestamp: '2026-06-16T09:00:00Z' },
+  { id: 'v2', storyboardId: 's1', field: 'duration', oldValue: '5', newValue: '3', operatorId: 'm1', operatorName: '张导', operatorRole: 'director', timestamp: '2026-06-16T09:30:00Z' },
+  { id: 'v3', storyboardId: 's3', field: 'dialogue', oldValue: '第一步双手持机，第二步手肘贴紧身体，第三步用音量键拍照', newValue: '第一步，双手持机；第二步，手肘贴紧身体；第三步，利用音量键拍照', operatorId: 'm2', operatorName: '李文', operatorRole: 'writer', timestamp: '2026-06-17T09:05:00Z' },
+  { id: 'v4', storyboardId: 's4', field: 'visualDescription', oldValue: '对比效果展示', newValue: '前后对比：糊片vs清晰照片', operatorId: 'm1', operatorName: '张导', operatorRole: 'director', timestamp: '2026-06-17T14:00:00Z' },
+  { id: 'v5', storyboardId: 's5', field: 'musicSuggestion', oldValue: '结尾音效', newValue: '结尾音效+BGM渐弱', operatorId: 'm4', operatorName: '赵剪', operatorRole: 'editor', timestamp: '2026-06-18T08:10:00Z' },
 ];
 
 export const MOCK_LIBRARY: LibraryScript[] = [
