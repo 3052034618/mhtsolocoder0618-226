@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useProjectStore } from '@/store/useProjectStore';
-import type { Storyboard, Comment as TComment, Member, MaterialStatus, Role } from '@/types';
-import { ROLE_CONFIG, MATERIAL_STATUS_CONFIG } from '@/types';
+import type { Storyboard, Comment as TComment, Member, MaterialStatus, Role, ReviewStatus } from '@/types';
+import { ROLE_CONFIG, MATERIAL_STATUS_CONFIG, REVIEW_STATUS_CONFIG } from '@/types';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Plus, Trash2, Clock, Film, MessageCircle, ChevronRight,
@@ -148,6 +148,7 @@ export default function ScriptEditor() {
                 <span className="absolute top-2 left-2 text-[10px] font-mono bg-ink-600 text-ink-300 rounded-full w-5 h-5 flex items-center justify-center">{sb.order}</span>
                 <span className="absolute top-2 right-2 flex items-center gap-1">
                   <span className="text-[10px] text-ink-400 font-mono flex items-center gap-0.5"><Clock size={10} />{sb.duration}s</span>
+                  {sb.reviewStatus !== 'pending' && <span className={`w-2 h-2 rounded-full ${REVIEW_STATUS_CONFIG[sb.reviewStatus].dot}`} />}
                   <span className={`w-2 h-2 rounded-full ${sb.materialReady ? 'bg-emerald-400' : 'bg-ink-500'}`} />
                 </span>
                 <p className="text-[11px] text-ink-300 mt-5 line-clamp-2 leading-tight">{sb.visualDescription || '—'}</p>
@@ -224,6 +225,40 @@ export default function ScriptEditor() {
                         </button>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-3 border-t border-ink-600">
+                <div className="flex items-center justify-between py-1 mb-2">
+                  <span className="text-xs text-ink-400">验收状态</span>
+                  <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${REVIEW_STATUS_CONFIG[selected.reviewStatus].bg} ${REVIEW_STATUS_CONFIG[selected.reviewStatus].color}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${REVIEW_STATUS_CONFIG[selected.reviewStatus].dot}`} />
+                    {REVIEW_STATUS_CONFIG[selected.reviewStatus].label}
+                  </span>
+                </div>
+                {selected.reviewStatus === 'pending' ? (
+                  <p className="text-[11px] text-ink-500 italic">待剪辑验收</p>
+                ) : (
+                  <div className="space-y-2">
+                    {selected.reviewNotes && (
+                      <p className="text-[11px] text-ink-300 leading-relaxed">
+                        <span className="text-amber-400/60">「</span>
+                        {selected.reviewNotes}
+                        <span className="text-amber-400/60">」</span>
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2 text-[10px] text-ink-500">
+                      {selected.reviewerId && store.getMemberById(selected.reviewerId) && (
+                        <span className="flex items-center gap-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${ROLE_CONFIG[store.getMemberById(selected.reviewerId)!.role].dot}`} />
+                          {store.getMemberById(selected.reviewerId)!.name}
+                        </span>
+                      )}
+                      {selected.reviewedAt && (
+                        <span>{new Date(selected.reviewedAt).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-')}</span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

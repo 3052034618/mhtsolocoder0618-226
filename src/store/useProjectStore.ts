@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Project, Storyboard, Comment, Material, VersionRecord, Member, NarrativeTemplate, LibraryScript } from '@/types';
+import type { Project, Storyboard, Comment, Material, VersionRecord, Member, NarrativeTemplate, LibraryScript, ReviewStatus } from '@/types';
 import { GRADIENTS } from '@/types';
 import {
   MOCK_PROJECTS, MOCK_STORYBOARDS, MOCK_COMMENTS, MOCK_MATERIALS,
@@ -44,10 +44,38 @@ interface ProjectStore {
   getProjectMembers: (projectId: string) => Member[];
   getMemberById: (id: string) => Member | undefined;
   getCurrentUser: () => Member;
+ updateStoryboardReview: (id: string, status: ReviewStatus, notes?: string) => void;
 }
 
 let idCounter = 100;
 const genId = () => `id_${Date.now()}_${++idCounter}`;
+
+const persistOptions = {
+  name: 'scriptcraft-storage',
+  onRehydrate: (state: unknown) => {
+    if (!state) return;
+    const s = state as ProjectStore;
+    s.storyboards = s.storyboards?.map(sb => ({
+      ...sb,
+      materialStatus: sb.materialStatus || 'not_shot',
+      materialReady: sb.materialReady ?? false,
+      reviewStatus: sb.reviewStatus || 'pending',
+      reviewNotes: sb.reviewNotes || '',
+    })) || [];
+    s.projects = s.projects?.map(p => ({
+      ...p,
+      members: p.members || ['m1'],
+    })) || [];
+    s.comments = s.comments?.map(c => ({
+      ...c,
+      authorRole: c.authorRole || 'director',
+    })) || [];
+    s.versions = s.versions?.map(v => ({
+      ...v,
+      operatorRole: v.operatorRole || 'director',
+    })) || [];
+  },
+};
 
 export const useProjectStore = create<ProjectStore>()(
   persist(
@@ -60,7 +88,7 @@ export const useProjectStore = create<ProjectStore>()(
       members: MOCK_MEMBERS,
       templates: MOCK_TEMPLATES,
       library: MOCK_LIBRARY,
-      currentUserId: 'm1',
+      currentUserId: 'm4',
 
       addProject: (name, type, templateId, memberIds) => {
         const project: Project = {
@@ -89,6 +117,8 @@ export const useProjectStore = create<ProjectStore>()(
                 shootingNotes: '',
                 materialReady: false,
                 materialStatus: 'not_shot',
+                reviewStatus: 'pending',
+                reviewNotes: '',
               });
             });
           }
@@ -105,6 +135,8 @@ export const useProjectStore = create<ProjectStore>()(
             shootingNotes: '',
             materialReady: false,
             materialStatus: 'not_shot',
+            reviewStatus: 'pending',
+            reviewNotes: '',
           });
         }
         set(state => ({
@@ -163,6 +195,8 @@ export const useProjectStore = create<ProjectStore>()(
           shootingNotes: '',
           materialReady: false,
           materialStatus: 'not_shot',
+          reviewStatus: 'pending',
+          reviewNotes: '',
         };
         set(state => ({ storyboards: [...state.storyboards, sb] }));
         return sb;
@@ -192,15 +226,15 @@ export const useProjectStore = create<ProjectStore>()(
         });
 
         const syncData: Partial<Storyboard> & Record<string, unknown> = { ...data };
-        if (data.materialStatus === 'ready') {
-          syncData.materialReady = true;
-        } else if (data.materialStatus as string && (data.materialStatus as string) !== 'ready') {
-          syncData.materialReady = false;
+        if (data.materialStatus !== undefined) {
+          syncData.materialReady = data.materialStatus === 'ready';
         }
-        if (data.materialReady === true) {
-          syncData.materialStatus = 'ready';
-        } else if (data.materialReady === false && old.materialStatus === 'ready') {
-          syncData.materialStatus = 'uploaded';
+        if (data.materialReady !== undefined) {
+          if (data.materialReady === true) {
+            syncData.materialStatus = 'ready';
+          } else if (old.materialStatus === 'ready') {
+            syncData.materialStatus = 'uploaded';
+          }
         }
 
         set(state => ({
@@ -210,6 +244,60 @@ export const useProjectStore = create<ProjectStore>()(
           versions: [...state.versions, ...versionRecords],
           projects: state.projects.map(p =>
             p.id === old.projectId ? { ...p, updatedAt: new Date().toISOString() } : p
+          ),
+        }));
+      },
+
+      updateStoryboardReview: (id, status, notes = '') => {
+        const old = get().storyboards.find(s => s.id === id);
+        if (!old) return;
+
+        const now = new Date().toISOString();
+        const currentUser = get().getCurrentUser();
+
+        const versionRecords: VersionRecord[] = [];
+        if (old.reviewStatus !== status) {
+          versionRecords.push({
+            id: genId(),
+            storyboardId: id,
+            field: 'reviewStatus',
+            oldValue: String(old.reviewStatus),
+            newValue: String(status),
+            operatorId: get().currentUserId,
+            operatorName: currentUser.name,
+            operatorRole: 'editor',
+            timestamp: now,
+          });
+        }
+        if (old.reviewNotes !== notes) {
+          versionRecords.push({
+            id: genId(),
+            storyboardId: id,
+            field: 'reviewNotes',
+            oldValue: String(old.reviewNotes),
+            newValue: String(notes),
+            operatorId: get().currentUserId,
+            operatorName: currentUser.name,
+            operatorRole: 'editor',
+            timestamp: now,
+          });
+        }
+
+        set(state => ({
+          storyboards: state.storyboards.map(s =>
+            s.id === id
+              ? {
+                  ...s,
+                  reviewStatus: status,
+                  reviewNotes: notes,
+                  reviewedAt: now,
+                  reviewerId: get().currentUserId,
+                }
+              : s
+          ),
+          versions: [...state.versions, ...versionRecords],
+          projects: state.projects.map(p =>
+            p.id === old.projectId ? { ...p, updatedAt: now } : p
           ),
         }));
       },
@@ -300,7 +388,25 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       deleteMaterial: (id) => {
-        set(state => ({ materials: state.materials.filter(m => m.id !== id) }));
+        const material = get().materials.find(m => m.id === id);
+        if (!material) return;
+        const storyboardId = material.storyboardId;
+        set(state => {
+          const newMaterials = state.materials.filter(m => m.id !== id);
+          const remainingMaterials = newMaterials.filter(m => m.storyboardId === storyboardId);
+          let newStoryboards = state.storyboards;
+          if (remainingMaterials.length === 0) {
+            newStoryboards = state.storyboards.map(s =>
+              s.id === storyboardId
+                ? { ...s, materialStatus: 'not_shot', materialReady: false }
+                : s
+            );
+          }
+          return {
+            materials: newMaterials,
+            storyboards: newStoryboards,
+          };
+        });
       },
 
       getStoryboardMaterials: (storyboardId) => {
@@ -344,8 +450,6 @@ export const useProjectStore = create<ProjectStore>()(
         return get().members.find(m => m.id === id) || MOCK_MEMBERS[0];
       },
     }),
-    {
-      name: 'scriptcraft-storage',
-    }
+    persistOptions satisfies Record<string, unknown>
   )
 );

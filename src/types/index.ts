@@ -2,6 +2,8 @@ export type Role = 'director' | 'writer' | 'camera' | 'editor';
 
 export type MaterialStatus = 'not_shot' | 'uploaded' | 'reshoot' | 'ready';
 
+export type ReviewStatus = 'pending' | 'pass' | 'reshoot' | 'revoice' | 'notes';
+
 export interface Project {
   id: string;
   name: string;
@@ -24,6 +26,10 @@ export interface Storyboard {
   shootingNotes: string;
   materialReady: boolean;
   materialStatus: MaterialStatus;
+  reviewStatus: ReviewStatus;
+  reviewNotes: string;
+  reviewedAt?: string;
+  reviewerId?: string;
 }
 
 export interface Comment {
@@ -97,6 +103,14 @@ export const MATERIAL_STATUS_CONFIG: Record<MaterialStatus, { label: string; col
   ready: { label: '已齐备', color: 'text-emerald-400', bg: 'bg-emerald-500/20', dot: 'bg-emerald-400' },
 };
 
+export const REVIEW_STATUS_CONFIG: Record<ReviewStatus, { label: string; color: string; bg: string; dot: string }> = {
+  pending: { label: '待验收', color: 'text-slate-400', bg: 'bg-slate-500/20', dot: 'bg-slate-400' },
+  pass: { label: '通过', color: 'text-emerald-400', bg: 'bg-emerald-500/20', dot: 'bg-emerald-400' },
+  reshoot: { label: '需补镜', color: 'text-red-400', bg: 'bg-red-500/20', dot: 'bg-red-400' },
+  revoice: { label: '需补音', color: 'text-purple-400', bg: 'bg-purple-500/20', dot: 'bg-purple-400' },
+  notes: { label: '有备注', color: 'text-amber-400', bg: 'bg-amber-500/20', dot: 'bg-amber-400' },
+};
+
 export const PROJECT_TYPES = ['搞笑', '情感', '知识', '美食', '旅行', '时尚', '科技', '生活'] as const;
 
 export const GRADIENTS = [
@@ -107,3 +121,15 @@ export const GRADIENTS = [
   'from-red-600 to-rose-500',
   'from-indigo-600 to-violet-500',
 ];
+
+export const FIELD_LABELS: Record<string, string> = {
+  visualDescription: '画面描述',
+  dialogue: '台词',
+  duration: '时长',
+  musicSuggestion: '配乐建议',
+  shootingNotes: '拍摄备注',
+  materialStatus: '素材状态',
+  materialReady: '素材就绪',
+  reviewStatus: '验收状态',
+  reviewNotes: '验收备注',
+};

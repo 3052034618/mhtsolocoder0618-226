@@ -1,4 +1,4 @@
-import type { Member, NarrativeTemplate, Project, Storyboard, Comment, Material, VersionRecord, LibraryScript, MaterialStatus } from '@/types';
+import type { Member, NarrativeTemplate, Project, Storyboard, Comment, Material, VersionRecord, LibraryScript, MaterialStatus, ReviewStatus } from '@/types';
 
 export const MOCK_MEMBERS: Member[] = [
   { id: 'm1', name: '张导', role: 'director', avatar: '🎬', color: '#8B5CF6' },
@@ -95,10 +95,13 @@ export const MOCK_PROJECTS: Project[] = [
   },
 ];
 
-const materialStatusMap: Record<string, MaterialStatus> = {
-  s1: 'ready', s2: 'ready', s3: 'uploaded', s4: 'not_shot', s5: 'not_shot',
-  s6: 'ready', s7: 'ready', s8: 'reshoot',
-  s9: 'not_shot', s10: 'not_shot', s11: 'not_shot',
+const reviewMap: Record<string, { status: ReviewStatus; notes: string; reviewedAt?: string; reviewerId?: string }> = {
+  s1: { status: 'pass', notes: '', reviewedAt: '2026-06-18T09:00:00Z', reviewerId: 'm4' },
+  s2: { status: 'pass', notes: '', reviewedAt: '2026-06-18T09:05:00Z', reviewerId: 'm4' },
+  s3: { status: 'notes', notes: '画面抖动过于明显，建议补一个更稳的角度', reviewedAt: '2026-06-18T09:10:00Z', reviewerId: 'm4' },
+  s6: { status: 'pass', notes: '', reviewedAt: '2026-06-17T22:00:00Z', reviewerId: 'm4' },
+  s7: { status: 'reshoot', notes: '慢动作部分速度不够慢，需要重拍', reviewedAt: '2026-06-17T22:10:00Z', reviewerId: 'm4' },
+  s8: { status: 'revoice', notes: '环境音太大，人声需要重录', reviewedAt: '2026-06-17T22:15:00Z', reviewerId: 'm4' },
 };
 
 export const MOCK_STORYBOARDS: Storyboard[] = [
@@ -108,6 +111,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '你拍的照片总是糊的？90%的人不知道这个技巧！',
     duration: 3, musicSuggestion: '疑问音效+节奏鼓点',
     shootingNotes: '需要微距镜头，手持抖动效果', materialReady: true, materialStatus: 'ready',
+    reviewStatus: 'pass', reviewNotes: '', reviewedAt: '2026-06-18T09:00:00Z', reviewerId: 'm4',
   },
   {
     id: 's2', projectId: 'p1', order: 2,
@@ -115,6 +119,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '问题出在你的握持方式上，这样拿手机肯定会抖',
     duration: 8, musicSuggestion: '轻快BGM起',
     shootingNotes: '需要绿幕后期标注', materialReady: true, materialStatus: 'ready',
+    reviewStatus: 'pass', reviewNotes: '', reviewedAt: '2026-06-18T09:05:00Z', reviewerId: 'm4',
   },
   {
     id: 's3', projectId: 'p1', order: 3,
@@ -122,6 +127,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '第一步，双手持机；第二步，手肘贴紧身体；第三步，利用音量键拍照',
     duration: 15, musicSuggestion: '轻快BGM持续',
     shootingNotes: '需要俯拍+侧面两个机位', materialReady: false, materialStatus: 'uploaded',
+    reviewStatus: 'notes', reviewNotes: '画面抖动过于明显，建议补一个更稳的角度', reviewedAt: '2026-06-18T09:10:00Z', reviewerId: 'm4',
   },
   {
     id: 's4', projectId: 'p1', order: 4,
@@ -129,6 +135,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '看到区别了吗？简单三步，出片率提升10倍',
     duration: 8, musicSuggestion: 'BGM渐强',
     shootingNotes: '需要分屏对比效果', materialReady: false, materialStatus: 'not_shot',
+    reviewStatus: 'pending', reviewNotes: '',
   },
   {
     id: 's5', projectId: 'p1', order: 5,
@@ -136,6 +143,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '关注我，下期教你夜景怎么拍！',
     duration: 4, musicSuggestion: '结尾音效+BGM渐弱',
     shootingNotes: '口播+贴纸动画', materialReady: false, materialStatus: 'not_shot',
+    reviewStatus: 'pending', reviewNotes: '',
   },
   {
     id: 's6', projectId: 'p2', order: 1,
@@ -143,6 +151,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '又是一个加班到深夜的日子…',
     duration: 5, musicSuggestion: '温柔钢琴BGM',
     shootingNotes: '暖色调灯光，蒸汽效果', materialReady: true, materialStatus: 'ready',
+    reviewStatus: 'pass', reviewNotes: '', reviewedAt: '2026-06-17T22:00:00Z', reviewerId: 'm4',
   },
   {
     id: 's7', projectId: 'p2', order: 2,
@@ -150,6 +159,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '但一碗热面，足以治愈一切',
     duration: 20, musicSuggestion: '温柔BGM+白噪音',
     shootingNotes: '需要慢动作特写', materialReady: true, materialStatus: 'ready',
+    reviewStatus: 'reshoot', reviewNotes: '慢动作部分速度不够慢，需要重拍', reviewedAt: '2026-06-17T22:10:00Z', reviewerId: 'm4',
   },
   {
     id: 's8', projectId: 'p2', order: 3,
@@ -157,6 +167,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '深夜食堂，为你而开',
     duration: 8, musicSuggestion: 'BGM高潮',
     shootingNotes: '需要升格拍摄蒸汽', materialReady: false, materialStatus: 'reshoot',
+    reviewStatus: 'revoice', reviewNotes: '环境音太大，人声需要重录', reviewedAt: '2026-06-17T22:15:00Z', reviewerId: 'm4',
   },
   {
     id: 's9', projectId: 'p3', order: 1,
@@ -164,6 +175,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '今天老板说要表扬一个人…',
     duration: 5, musicSuggestion: '日常轻松BGM',
     shootingNotes: '工位实拍', materialReady: false, materialStatus: 'not_shot',
+    reviewStatus: 'pending', reviewNotes: '',
   },
   {
     id: 's10', projectId: 'p3', order: 2,
@@ -171,6 +183,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '那肯定是我啦！我最近加班最多！',
     duration: 10, musicSuggestion: 'BGM加快',
     shootingNotes: '夸张表情特写', materialReady: false, materialStatus: 'not_shot',
+    reviewStatus: 'pending', reviewNotes: '',
   },
   {
     id: 's11', projectId: 'p3', order: 3,
@@ -178,6 +191,7 @@ export const MOCK_STORYBOARDS: Storyboard[] = [
     dialogue: '我表扬的是小张，他默默把项目做完了',
     duration: 5, musicSuggestion: '反转音效',
     shootingNotes: '需要面部表情快速切换', materialReady: false, materialStatus: 'not_shot',
+    reviewStatus: 'pending', reviewNotes: '',
   },
 ];
 
