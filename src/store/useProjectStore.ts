@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Project, Storyboard, Comment, Material, VersionRecord, Member, NarrativeTemplate, LibraryScript, ReviewStatus, DeliverySignOff, DeliveryStatus, Role } from '@/types';
+import type { Project, Storyboard, Comment, Material, VersionRecord, Member, NarrativeTemplate, LibraryScript, ReviewStatus, DeliverySignOff, DeliveryStatus, Role, SignOffParty } from '@/types';
 import { GRADIENTS } from '@/types';
 import {
   MOCK_PROJECTS, MOCK_STORYBOARDS, MOCK_COMMENTS, MOCK_MATERIALS,
@@ -47,7 +47,7 @@ interface ProjectStore {
  updateStoryboardReview: (id: string, status: ReviewStatus, notes?: string) => void;
 
   deliverySignOffs: DeliverySignOff[];
-  addDeliverySignOff(projectId: string, status: DeliveryStatus, signerName: string, signerRole: Role, notes: string, rejectedStoryboardIds: string[]): void;
+  addDeliverySignOff(projectId: string, status: DeliveryStatus, signerName: string, signerRole: Role, signerParty: SignOffParty, notes: string, rejectedStoryboardIds: string[]): void;
   getProjectDeliverySignOffs(projectId: string): DeliverySignOff[];
   getLatestDeliveryStatus(projectId: string): DeliveryStatus;
 }
@@ -60,29 +60,41 @@ const persistOptions = {
   onRehydrate: (state: unknown) => {
     if (!state) return;
     const s = state as ProjectStore;
-    s.storyboards = s.storyboards?.map(sb => ({
-      ...sb,
-      materialStatus: sb.materialStatus || 'not_shot',
-      materialReady: sb.materialReady ?? false,
-      reviewStatus: sb.reviewStatus || 'pending',
-      reviewNotes: sb.reviewNotes || '',
-      reviewedAt: sb.reviewedAt ?? undefined,
-      reviewerId: sb.reviewerId ?? undefined,
-    })) || [];
-    s.projects = s.projects?.map(p => ({
-      ...p,
-      members: p.members || ['m1'],
-    })) || [];
-    s.comments = s.comments?.map(c => ({
-      ...c,
-      authorRole: c.authorRole || 'director',
-      mentionIds: c.mentionIds || [],
-    })) || [];
-    s.versions = s.versions?.map(v => ({
-      ...v,
-      operatorRole: v.operatorRole || 'director',
-    })) || [];
-    s.deliverySignOffs = s.deliverySignOffs || [];
+    try {
+      s.storyboards = (s.storyboards || []).map(sb => ({
+        ...sb,
+        materialStatus: sb.materialStatus || 'not_shot',
+        materialReady: sb.materialReady ?? false,
+        reviewStatus: sb.reviewStatus || 'pending',
+        reviewNotes: sb.reviewNotes || '',
+        reviewedAt: sb.reviewedAt ?? undefined,
+        reviewerId: sb.reviewerId ?? undefined,
+      }));
+      s.projects = (s.projects || []).map(p => ({
+        ...p,
+        members: p.members || ['m1'],
+      }));
+      s.comments = (s.comments || []).map(c => ({
+        ...c,
+        authorRole: c.authorRole || 'director',
+        mentionIds: c.mentionIds || [],
+      }));
+      s.versions = (s.versions || []).map(v => ({
+        ...v,
+        operatorRole: v.operatorRole || 'director',
+      }));
+      s.deliverySignOffs = (s.deliverySignOffs || []).map(so => ({
+        ...so,
+        signerParty: so.signerParty || 'internal',
+        rejectedStoryboardIds: so.rejectedStoryboardIds || [],
+      }));
+      s.materials = s.materials || [];
+      s.members = s.members || [];
+      s.templates = s.templates || [];
+      s.library = s.library || [];
+    } catch (e) {
+      console.error('Data migration error:', e);
+    }
   },
   partialize: (state: ProjectStore) => ({
     projects: state.projects,
@@ -472,13 +484,14 @@ export const useProjectStore = create<ProjectStore>()(
         return get().members.find(m => m.id === id) || MOCK_MEMBERS[0];
       },
 
-      addDeliverySignOff: (projectId, status, signerName, signerRole, notes, rejectedStoryboardIds) => {
+      addDeliverySignOff: (projectId, status, signerName, signerRole, signerParty, notes, rejectedStoryboardIds) => {
         const signOff: DeliverySignOff = {
           id: genId(),
           projectId,
           status,
           signerName,
           signerRole,
+          signerParty,
           notes,
           rejectedStoryboardIds,
           createdAt: new Date().toISOString(),

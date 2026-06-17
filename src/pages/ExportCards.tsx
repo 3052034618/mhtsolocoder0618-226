@@ -5,8 +5,8 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight, Download, FileText, Clock, Music, Camera, AlertTriangle,
   CheckCircle, XCircle, Loader2, ClipboardCheck,
 } from 'lucide-react';
-import { MATERIAL_STATUS_CONFIG, REVIEW_STATUS_CONFIG, DELIVERY_STATUS_CONFIG, ROLE_CONFIG } from '@/types';
-import type { Storyboard, MaterialStatus, ReviewStatus, DeliveryStatus, Role, Comment } from '@/types';
+import { MATERIAL_STATUS_CONFIG, REVIEW_STATUS_CONFIG, DELIVERY_STATUS_CONFIG, ROLE_CONFIG, SIGN_OFF_PARTY_CONFIG } from '@/types';
+import type { Storyboard, MaterialStatus, ReviewStatus, DeliveryStatus, Role, Comment, SignOffParty } from '@/types';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -21,7 +21,7 @@ function generateExportHTML(
   storyboards: Storyboard[],
   view: 'cards' | 'package',
   getComments: (sbId: string) => Comment[],
-  signOffs?: { status: DeliveryStatus; signerName: string; signerRole: Role; notes: string; createdAt: string; rejectedStoryboardIds: string[] }[],
+  signOffs?: { status: DeliveryStatus; signerName: string; signerRole: Role; signerParty: SignOffParty; notes: string; createdAt: string; rejectedStoryboardIds: string[] }[],
 ): string {
   const statusMap: Record<MaterialStatus, { label: string; color: string }> = {
     not_shot: { label: '未拍摄', color: '#94a3b8' },
@@ -49,6 +49,12 @@ function generateExportHTML(
     writer: '文案',
     camera: '拍摄',
     editor: '剪辑',
+  };
+
+  const partyMap: Record<string, { label: string; color: string }> = {
+    client: { label: '客户', color: '#22d3ee' },
+    responsible: { label: '负责人', color: '#fbbf24' },
+    internal: { label: '内部成员', color: '#94a3b8' },
   };
 
   const total = storyboards.length;
@@ -224,6 +230,7 @@ function generateExportHTML(
                 <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">时间</th>
                 <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">签收人</th>
                 <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">角色</th>
+                <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">签收方</th>
                 <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">状态</th>
                 <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">意见</th>
               </tr>
@@ -231,13 +238,18 @@ function generateExportHTML(
             <tbody>
               ${signOffs.map(so => {
                 const soDs = deliveryStatusMap[so.status];
+                const pm = partyMap[so.signerParty] || partyMap.internal;
+                const notesContent = so.status === 'rejected' && so.rejectedStoryboardIds.length === 0
+                  ? `${escapeHtml(so.notes || '')}<span style="font-size:10px;font-weight:500;color:#f87171;background:#f871711a;padding:2px 8px;border-radius:9999px;margin-left:4px;">整包退回</span>`
+                  : escapeHtml(so.notes || '—');
                 return `
                   <tr style="border-bottom:1px solid #f1f5f9;">
                     <td style="padding:10px 12px;font-size:11px;color:#64748b;">${new Date(so.createdAt).toLocaleString('zh-CN')}</td>
                     <td style="padding:10px 12px;font-size:11px;color:#1e293b;font-weight:500;">${escapeHtml(so.signerName)}</td>
                     <td style="padding:10px 12px;font-size:11px;color:#64748b;">${roleLabelMap[so.signerRole]}</td>
+                    <td style="padding:10px 12px;"><span style="font-size:10px;font-weight:500;color:${pm.color};background:${pm.color}1a;padding:2px 8px;border-radius:9999px;">${pm.label}</span></td>
                     <td style="padding:10px 12px;"><span style="font-size:10px;font-weight:500;color:${soDs.color};background:${soDs.color}1a;padding:2px 8px;border-radius:9999px;">${soDs.label}</span></td>
-                    <td style="padding:10px 12px;font-size:11px;color:#64748b;max-width:200px;line-height:1.5;">${escapeHtml(so.notes || '—')}</td>
+                    <td style="padding:10px 12px;font-size:11px;color:#64748b;max-width:200px;line-height:1.5;">${notesContent}</td>
                   </tr>
                 `;
               }).join('')}
@@ -363,6 +375,8 @@ export default function ExportCards() {
   const [signOffRole, setSignOffRole] = useState<Role>('director');
   const [signOffNotes, setSignOffNotes] = useState('');
   const [rejectedIds, setRejectedIds] = useState<string[]>([]);
+  const [signOffParty, setSignOffParty] = useState<SignOffParty>('internal');
+  const [pdfWithHistory, setPdfWithHistory] = useState(false);
 
   const packageRef = useRef<HTMLDivElement>(null);
 
@@ -403,13 +417,14 @@ export default function ExportCards() {
 
   const handleExportAll = useCallback(() => {
     if (!project) return;
-    const html = generateExportHTML(project.name, storyboards, currentView, getComments, deliverySignOffs);
+    const signOffsForExport = pdfWithHistory ? deliverySignOffs : (deliverySignOffs.length > 0 ? [deliverySignOffs[0]] : []);
+    const html = generateExportHTML(project.name, storyboards, currentView, getComments, signOffsForExport);
     const win = window.open('', '_blank');
     if (!win) return;
     win.document.write(html);
     win.document.close();
     setTimeout(() => win.print(), 400);
-  }, [project, storyboards, currentView, getComments, deliverySignOffs]);
+  }, [project, storyboards, currentView, getComments, deliverySignOffs, pdfWithHistory]);
 
   const handleDownloadPDF = useCallback(async () => {
     if (!project || pdfLoading) return;
@@ -427,8 +442,9 @@ export default function ExportCards() {
       container.style.padding = '0';
       document.body.appendChild(container);
 
+      const signOffsForExport = pdfWithHistory ? deliverySignOffs : (deliverySignOffs.length > 0 ? [deliverySignOffs[0]] : []);
       const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = generateExportHTML(project.name, storyboards, 'package', getComments, deliverySignOffs);
+      tempDiv.innerHTML = generateExportHTML(project.name, storyboards, 'package', getComments, signOffsForExport);
       const bodyContent = tempDiv.querySelector('body');
       if (bodyContent) {
         container.innerHTML = bodyContent.innerHTML;
@@ -482,6 +498,7 @@ export default function ExportCards() {
       signOffStatus,
       signOffName.trim(),
       signOffRole,
+      signOffParty,
       signOffNotes.trim(),
       signOffStatus === 'rejected' ? rejectedIds : [],
     );
@@ -489,7 +506,8 @@ export default function ExportCards() {
     setSignOffNotes('');
     setRejectedIds([]);
     setSignOffStatus('approved');
-  }, [projectId, store, signOffStatus, signOffName, signOffRole, signOffNotes, rejectedIds]);
+    setSignOffParty('internal');
+  }, [projectId, store, signOffStatus, signOffName, signOffRole, signOffParty, signOffNotes, rejectedIds]);
 
   const toggleRejectedId = useCallback((id: string) => {
     setRejectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -550,6 +568,11 @@ export default function ExportCards() {
         </div>
         <div className="flex-1" />
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[10px] text-ink-400 cursor-pointer">
+            <input type="checkbox" checked={pdfWithHistory} onChange={e => setPdfWithHistory(e.target.checked)}
+              className="w-3 h-3 rounded border-ink-500 bg-ink-700 text-amber-500 focus:ring-amber-500/50" />
+            含完整签收历史
+          </label>
           <button
             onClick={handleDownloadPDF}
             disabled={pdfLoading}
@@ -906,6 +929,23 @@ export default function ExportCards() {
                 </div>
 
                 <div>
+                  <label className="text-[10px] text-ink-400 tracking-wider uppercase block mb-1.5">签收方身份</label>
+                  <div className="flex items-center gap-2">
+                    {(['client', 'responsible', 'internal'] as SignOffParty[]).map(party => {
+                      const pc = SIGN_OFF_PARTY_CONFIG[party];
+                      return (
+                        <button key={party} onClick={() => setSignOffParty(party)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            signOffParty === party ? `${pc.bg} ${pc.color} ring-1 ring-current/30` : 'bg-ink-700/50 text-ink-400 hover:text-ink-200'
+                          }`}>
+                          {pc.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
                   <label className="text-[10px] text-ink-400 tracking-wider uppercase block mb-1.5">签收状态</label>
                   <div className="flex items-center gap-3">
                     <button
@@ -935,6 +975,7 @@ export default function ExportCards() {
 
                 {signOffStatus === 'rejected' && (
                   <div>
+                    <p className="text-[10px] text-ink-500 mb-2">不勾选分镜则默认整包退回</p>
                     <label className="text-[10px] text-ink-400 tracking-wider uppercase block mb-1.5">退回分镜</label>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                       {storyboards.map(sbItem => (
@@ -978,37 +1019,51 @@ export default function ExportCards() {
               {deliverySignOffs.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-ink-700">
                   <h3 className="text-xs font-semibold text-ink-300 mb-3">签收历史</h3>
-                  <div className="space-y-3">
-                    {deliverySignOffs.map(so => {
+                  <div>
+                    {deliverySignOffs.map((so, index) => {
                       const soConfig = DELIVERY_STATUS_CONFIG[so.status];
                       const soRoleConfig = ROLE_CONFIG[so.signerRole];
+                      const soPartyConfig = SIGN_OFF_PARTY_CONFIG[so.signerParty];
                       return (
-                        <div key={so.id} className="bg-ink-700/30 rounded-xl p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${soConfig.bg} ${soConfig.color}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${soConfig.dot}`} />
-                                {soConfig.label}
-                              </span>
-                              <span className="text-xs font-medium text-ink-200">{so.signerName}</span>
-                              <span className={`text-[10px] font-medium ${soRoleConfig.color}`}>{soRoleConfig.label}</span>
-                            </div>
-                            <span className="text-[10px] text-ink-500">{new Date(so.createdAt).toLocaleString('zh-CN')}</span>
-                          </div>
-                          {so.notes && <p className="text-xs text-ink-400 mt-1">{so.notes}</p>}
-                          {so.rejectedStoryboardIds.length > 0 && (
-                            <div className="mt-2 flex items-center gap-1 flex-wrap">
-                              <span className="text-[10px] text-ink-500">退回分镜：</span>
-                              {so.rejectedStoryboardIds.map(id => {
-                                const rSb = storyboards.find(s => s.id === id);
-                                return rSb ? (
-                                  <span key={id} className="text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
-                                    镜头{rSb.order}
-                                  </span>
-                                ) : null;
-                              })}
-                            </div>
+                        <div key={so.id} className="relative pl-6 pb-6">
+                          {index < deliverySignOffs.length - 1 && (
+                            <div className="absolute left-[7px] top-3 bottom-0 w-px bg-ink-700" />
                           )}
+                          <div className="absolute left-0 top-1 w-[15px] h-[15px] rounded-full border-2 flex items-center justify-center"
+                            style={{ borderColor: so.status === 'approved' ? '#34d399' : so.status === 'rejected' ? '#f87171' : '#94a3b8' }}>
+                            <div className="w-1.5 h-1.5 rounded-full" style={{ background: so.status === 'approved' ? '#34d399' : so.status === 'rejected' ? '#f87171' : '#94a3b8' }} />
+                          </div>
+                          <div className="bg-ink-700/30 rounded-xl p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${soConfig.bg} ${soConfig.color}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${soConfig.dot}`} />
+                                  {soConfig.label}
+                                </span>
+                                <span className="text-xs font-medium text-ink-200">{so.signerName}</span>
+                                <span className={`text-[10px] font-medium ${soRoleConfig.color}`}>{soRoleConfig.label}</span>
+                                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${soPartyConfig.bg} ${soPartyConfig.color}`}>{soPartyConfig.label}</span>
+                              </div>
+                              <span className="text-[10px] text-ink-500">{new Date(so.createdAt).toLocaleString('zh-CN')}</span>
+                            </div>
+                            {so.notes && <p className="text-xs text-ink-400 mt-1">{so.notes}</p>}
+                            {so.rejectedStoryboardIds.length > 0 && (
+                              <div className="mt-2 flex items-center gap-1 flex-wrap">
+                                <span className="text-[10px] text-ink-500">退回分镜：</span>
+                                {so.rejectedStoryboardIds.map(id => {
+                                  const rSb = storyboards.find(s => s.id === id);
+                                  return rSb ? (
+                                    <span key={id} className="text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">镜头{rSb.order}</span>
+                                  ) : null;
+                                })}
+                              </div>
+                            )}
+                            {so.status === 'rejected' && so.rejectedStoryboardIds.length === 0 && (
+                              <div className="mt-2">
+                                <span className="text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">整包退回</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}

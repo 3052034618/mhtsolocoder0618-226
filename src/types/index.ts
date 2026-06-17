@@ -6,6 +6,8 @@ export type ReviewStatus = 'pending' | 'pass' | 'reshoot' | 'revoice' | 'notes';
 
 export type DeliveryStatus = 'pending' | 'approved' | 'rejected';
 
+export type SignOffParty = 'client' | 'responsible' | 'internal';
+
 export interface Project {
   id: string;
   name: string;
@@ -97,6 +99,7 @@ export interface DeliverySignOff {
   status: DeliveryStatus;
   signerName: string;
   signerRole: Role;
+  signerParty: SignOffParty;
   notes: string;
   rejectedStoryboardIds: string[];
   createdAt: string;
@@ -128,6 +131,12 @@ export const DELIVERY_STATUS_CONFIG: Record<DeliveryStatus, { label: string; col
   pending: { label: '待签收', color: 'text-slate-400', bg: 'bg-slate-500/20', dot: 'bg-slate-400' },
   approved: { label: '已通过', color: 'text-emerald-400', bg: 'bg-emerald-500/20', dot: 'bg-emerald-400' },
   rejected: { label: '退回修改', color: 'text-red-400', bg: 'bg-red-500/20', dot: 'bg-red-400' },
+};
+
+export const SIGN_OFF_PARTY_CONFIG: Record<SignOffParty, { label: string; color: string; bg: string }> = {
+  client: { label: '客户', color: 'text-cyan-400', bg: 'bg-cyan-500/20' },
+  responsible: { label: '负责人', color: 'text-amber-400', bg: 'bg-amber-500/20' },
+  internal: { label: '内部成员', color: 'text-slate-400', bg: 'bg-slate-500/20' },
 };
 
 export const PROJECT_TYPES = ['搞笑', '情感', '知识', '美食', '旅行', '时尚', '科技', '生活'] as const;

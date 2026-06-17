@@ -32,6 +32,7 @@ const KANBAN_COLUMNS: { key: ReviewStatus; label: string; titleColor: string; ti
   { key: 'pending', label: '待验收', titleColor: 'text-slate-400', titleBg: 'bg-slate-500/20' },
   { key: 'reshoot', label: '需补镜', titleColor: 'text-red-400', titleBg: 'bg-red-500/20' },
   { key: 'revoice', label: '需补音', titleColor: 'text-purple-400', titleBg: 'bg-purple-500/20' },
+  { key: 'notes', label: '有备注', titleColor: 'text-amber-400', titleBg: 'bg-amber-500/20' },
   { key: 'pass', label: '已通过', titleColor: 'text-emerald-400', titleBg: 'bg-emerald-500/20' },
 ];
 
@@ -84,18 +85,21 @@ export default function MaterialManagement() {
   const reviewPercent = totalStoryboards > 0 ? Math.round((reviewPassCount / totalStoryboards) * 100) : 0;
 
   const deliverySignOffs = store.getProjectDeliverySignOffs(projectId!);
-  const rejectedStoryboardIds = deliverySignOffs
-    .filter(s => s.status === 'rejected')
-    .flatMap(s => s.rejectedStoryboardIds);
+  const latestRejection = deliverySignOffs.find(s => s.status === 'rejected');
+  const isStoryboardRejectedByDelivery = (sbId: string) => {
+    if (!latestRejection) return false;
+    return latestRejection.rejectedStoryboardIds.length === 0 || latestRejection.rejectedStoryboardIds.includes(sbId);
+  };
+
+  const detailRejection = detailStoryboardId && isStoryboardRejectedByDelivery(detailStoryboardId)
+    ? latestRejection
+    : null;
 
   const detailStoryboard = detailStoryboardId
     ? allStoryboards.find(sb => sb.id === detailStoryboardId) ?? null
     : null;
   const detailMaterials = detailStoryboardId ? store.getStoryboardMaterials(detailStoryboardId) : [];
   const detailCommentsByRole = detailStoryboardId ? store.getStoryboardCommentsByRole(detailStoryboardId) : {};
-  const detailRejection = detailStoryboardId && rejectedStoryboardIds.includes(detailStoryboardId)
-    ? deliverySignOffs.find(s => s.status === 'rejected' && s.rejectedStoryboardIds.includes(detailStoryboardId))
-    : null;
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -520,6 +524,9 @@ export default function MaterialManagement() {
                           <p className="text-xs text-gray-300 line-clamp-2 mb-2">{sb.visualDescription || '无画面描述'}</p>
                           {sb.reviewNotes && (
                             <p className="text-[11px] text-gray-500 truncate">📝 {sb.reviewNotes}</p>
+                          )}
+                          {isStoryboardRejectedByDelivery(sb.id) && (
+                            <span className="text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded mt-1 inline-block">退回</span>
                           )}
                         </button>
                       );

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useProjectStore } from '@/store/useProjectStore';
 import type { Storyboard, Comment as TComment, Member, MaterialStatus, Role, ReviewStatus } from '@/types';
-import { ROLE_CONFIG, MATERIAL_STATUS_CONFIG, REVIEW_STATUS_CONFIG, DELIVERY_STATUS_CONFIG } from '@/types';
+import { ROLE_CONFIG, MATERIAL_STATUS_CONFIG, REVIEW_STATUS_CONFIG, DELIVERY_STATUS_CONFIG, SIGN_OFF_PARTY_CONFIG } from '@/types';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Plus, Trash2, Clock, Film, MessageCircle, ChevronRight,
@@ -292,6 +292,11 @@ export default function ScriptEditor() {
                       <span className={`w-1.5 h-1.5 rounded-full ${ROLE_CONFIG[latestDelivery.signerRole].dot}`} />
                       {latestDelivery.signerName}
                     </span>
+                    {latestDelivery.signerParty && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${SIGN_OFF_PARTY_CONFIG[latestDelivery.signerParty].bg} ${SIGN_OFF_PARTY_CONFIG[latestDelivery.signerParty].color}`}>
+                        {SIGN_OFF_PARTY_CONFIG[latestDelivery.signerParty].label}
+                      </span>
+                    )}
                     <span>{new Date(latestDelivery.createdAt).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-')}</span>
                   </div>
                 </div>
